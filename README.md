@@ -191,14 +191,35 @@ bombas, muros ni sliders, una nota por mano y paso, y los tresillos se redondean
 |---|---|---|
 | Código | GitHub [`PGSCOM/BeatGen`](https://github.com/PGSCOM/BeatGen) | Público, licencia MIT |
 | Índice: ids, hashes y metadatos de los 6303 mapas | HF [`PGSCOM/beatgen-maps-index`](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index) | Público |
-| Dataset completo: zips y `.npz` | HF `PGSCOM/beatgen-maps` | Privado |
-| Modelo entrenado | HF `PGSCOM/beatgen-ckpt` | Privado |
+| Mapas, audio y `.npz` | — | No se publican; cada uno los descarga y procesa |
+| Modelo entrenado | — | No se publica |
 
-- **Los mapas y el audio no se redistribuyen.** Los términos de BeatSaver exigen permiso
-  explícito por escrito para republicar o usar el contenido de otros usuarios, incluidas las obras
-  derivadas, y el audio tiene copyright. Por eso el dataset público solo lleva referencias: cada uno
-  descarga los mapas de BeatSaver con `download.py --from`.
-- **Los `.npz` tampoco:** los tokens son una transcripción directa de los mapas.
-- **El modelo entrenado tampoco.** Si cuenta como obra derivada de los mapas es una zona gris, y los
-  términos no hablan de entrenar modelos. Para publicarlo habría que pedir permiso a BeatSaver.
-- Si algún mapa generado se publica en BeatSaver, hay que marcarlo como hecho con IA.
+### Por qué no se publican el modelo ni los datos
+
+El código es nuestro y va con licencia MIT. Pero todo lo que sale de los mapas pertenece a otros:
+
+- **Los mapas son de sus mappers.** Los [términos de BeatSaver](https://beatsaver.com/policy/tos)
+  exigen permiso explícito por escrito para *"republishing or use of another user's content posted
+  on BeatSaver including derivative work"*, y aclaran que dar crédito no basta. Redistribuir los
+  zips, aunque sea dentro de un dataset, es justo eso.
+- **El audio tiene copyright.** Los zips llevan la canción completa, y quien sube un mapa a
+  BeatSaver declara tener sus derechos de distribución; quien lo descarga no los recibe.
+- **Los `.npz` tampoco son publicables.** Los tokens son una transcripción directa de las notas de
+  cada mapa, es decir, una obra derivada.
+- **El modelo es zona gris, y por eso no se publica.** Sus pesos son el resultado de entrenar con
+  mapas de otros sin su permiso. Los términos de BeatSaver no hablan de entrenar modelos, pero
+  prohíben "usar" el contenido de otros usuarios, incluidas obras derivadas, y un modelo capaz de
+  imitar su estilo puede considerarse una. Además, buena parte de la comunidad de mappers está en
+  contra de los generadores automáticos: BeatSaver obliga a declararlos y los separa del resto.
+  Publicarlo sin preguntar sería usar su trabajo de una forma que no han autorizado. Para hacerlo
+  habría que pedir permiso a BeatSaver o, mejor, a los mappers.
+- **El índice sí se publica.** Solo lleva ids, hashes y metadatos de la API pública, sin contenido.
+  Con él y `download.py --from`, cualquiera puede reconstruir el mismo dataset descargándolo él
+  mismo de BeatSaver, que es lo que permiten sus términos.
+
+El dataset privado con los zips y los `.npz` se borró al terminar el proyecto: se puede reconstruir
+desde el índice. En una comprobación del 12/11/2026, BeatSaver seguía sirviendo el 100 % de una
+muestra de 300 versiones exactas. Con el tiempo se pueden perder algunas, si un mapper sube una
+versión nueva de su mapa.
+
+Si algún mapa generado se publica en BeatSaver, hay que marcarlo como hecho con IA, como exige la plataforma.
