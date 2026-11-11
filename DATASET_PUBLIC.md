@@ -11,43 +11,41 @@ size_categories: [1K<n<10K]
 
 # BeatGen maps index
 
-Lista de los 6303 mapas de Beat Saber con los que se entrenó
-[BeatGen](https://github.com/PGSCOM/BeatGen), sacados de [BeatSaver](https://beatsaver.com):
+The list of Beat Saber maps used to train [BeatGen](https://github.com/PGSCOM/BeatGen). It holds
+references only: no maps and no audio. The maps belong to their mappers and BeatSaver's terms don't
+allow redistributing them, so you download them yourself from [BeatSaver](https://beatsaver.com).
 
-- 2466 mapas ranked con rating ≥ 0.6.
-- 3837 mapas no ranked con rating ≥ 0.85 y al menos 50 votos.
+6303 maps:
 
-Se excluyen los automappers, los mapas declarados como IA y los que usan Noodle o Mapping
-Extensions. De los 6303, `prepare.py` aprovecha 5408; el resto tiene cambios de BPM o formato Info v4.
+- 2466 ranked maps rated 0.6 or higher.
+- 3837 unranked maps rated 0.85 or higher, with at least 50 votes.
 
-**Aquí no hay mapas ni audio, solo referencias.** Los mapas son de sus mappers y la música, de
-sus autores. Los términos de BeatSaver no permiten redistribuirlos sin permiso, así que cada
-uno se los descarga de BeatSaver.
+Automapped maps, maps declared as AI-made and maps using Noodle or Mapping Extensions are excluded.
 
-## Reproducir el dataset
+## Rebuilding the dataset
 
 ```bash
 git clone https://github.com/PGSCOM/BeatGen && cd BeatGen
-uv venv --python 3.12 .venv && uv pip install -r requirements.txt
+uv venv --python 3.12 .venv && source .venv/bin/activate
+uv pip install -r requirements.txt
 hf download PGSCOM/beatgen-maps-index meta.jsonl --type dataset --local-dir .
-python download.py --from meta.jsonl   # → data/raw/<id>.zip (la versión exacta, por hash)
-python prepare.py                      # → data/proc/<id>.npz
-bash gpu.sh train --d 384 --layers 6 --steps 100000   # entrena (en una máquina con GPU)
+python download.py --from meta.jsonl   # data/raw/<id>.zip, the exact version by hash (~45 GB)
+python prepare.py                      # data/proc/<id>.npz (5408 usable maps)
 ```
 
-Si un mapper sube una versión nueva de su mapa, la versión antigua puede dejar de estar
-disponible y esa descarga fallará. El resto no se ve afectado.
+If a mapper uploads a new version of a map, the old one may no longer be available and that
+download will fail.
 
-## Campos de `meta.jsonl`
+## Fields
 
-| Campo | Contenido |
+| Field | Content |
 |---|---|
-| `id` | Id de BeatSaver (`https://beatsaver.com/maps/<id>`) |
-| `hash` | Hash de la versión usada |
-| `name`, `song`, `artist`, `mapper` | Título del mapa, canción, artista y mapper |
-| `bpm`, `rating`, `upvotes`, `tags` | Datos de BeatSaver en el momento de la descarga |
-| `ranked`, `blRanked` | Ranked en ScoreSaber / BeatLeader |
-| `uploaded` | Fecha de subida |
-| `diffs` | Dificultades de la característica Standard |
+| `id` | BeatSaver id (`https://beatsaver.com/maps/<id>`) |
+| `hash` | Hash of the map version used |
+| `name`, `song`, `artist`, `mapper` | Map title, song, artist and mapper |
+| `bpm`, `rating`, `upvotes`, `tags` | BeatSaver data at download time |
+| `ranked`, `blRanked` | Ranked on ScoreSaber / BeatLeader |
+| `uploaded` | Upload date |
+| `diffs` | Difficulties in the Standard characteristic |
 
-Los metadatos proceden de la API pública de BeatSaver.
+Metadata comes from the public BeatSaver API.

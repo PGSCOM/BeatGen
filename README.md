@@ -1,225 +1,150 @@
 # BeatGen
 
-> **Proyecto terminado (noviembre de 2026).** Funciona de punta a punta y genera mapas que se pueden
-> jugar, pero no llega a la calidad de un mapa hecho a mano. Este README resume cómo está montado,
-> qué se consiguió y qué quedó pendiente.
+BeatGen generates Beat Saber maps from audio. You give it a song and it returns a zip you can drop
+into `CustomLevels`. Note density follows the structure of the song (calmer verses, busier
+choruses), or you can set it by hand.
 
-Generador de mapas de Beat Saber con IA. Le das una canción y devuelve un zip listo para
-`CustomLevels`. La diferencia con Beat Sage o DeepSaber es que la intensidad se puede **controlar**:
-el mapa es más suave en los versos y más cargado en los estribillos, de forma automática a partir de
-la estructura de la canción o a mano con una curva.
+The project is finished (November 2026). It works end to end and the maps are playable, but they
+are harder to follow than maps made by people. The trained model and the dataset are not published;
+see [Data and licensing](#data-and-licensing).
 
-## Resultado
+## Results
 
-- **Medido** (`eval.py`, 60 dificultades de canciones que el modelo no vio al entrenar): el modelo
-  supera a una referencia basada en los picos del audio en precisión de timing y cumple el objetivo
-  de intensidad.
-- **Jugado** ("For Real" de Pharrell Williams, Hard y Expert, en unas Pico 4): la cantidad de notas
-  está bien y el mapa se puede jugar, pero cuesta seguirlo. Le falta el flujo y la intención de un
-  mapper humano. En versiones anteriores aparecían patrones imposibles y bucles a mitad de canción;
-  ambos se corrigieron (ver [Problemas encontrados](#problemas-encontrados)).
+Evaluated with `eval.py` on 60 difficulties from songs held out of training:
 
-| | F1 exacto | F1 ±1 paso | error de intensidad | notas que corrige la paridad |
+| | F1 (exact) | F1 (±1 step) | Density error | Parity fixes |
 |---|---|---|---|---|
-| **Modelo final** (d=384, 6 capas) | **0.66** | **0.74** | **17 %** | 8 % |
-| Modelo pequeño (d=256, 4 capas) | 0.59 | 0.71 | 18 % | 5 % |
-| Referencia: notas en los picos del audio | 0.39 | 0.72 | — | — |
-| Mapas reales | — | — | — | 4.7 % |
+| BeatGen (d=384, 6 layers) | **0.66** | **0.74** | **17 %** | 8 % |
+| Baseline | 0.39 | 0.72 | | |
+| Human maps | | | | 4.7 % |
 
-La referencia lo tiene fácil a propósito: pone en cada bloque de 4 compases exactamente el mismo
-número de notas que el mapa real.
+- **F1** compares the grid steps that have notes in the generated map and in the human one.
+- **Baseline** places as many notes as the human map has in each 4-bar block, on the steps with the
+  most spectral flux. It knows the real note count, so it is a fairly strong baseline.
+- **Density error** is how far the generated notes per beat are from the requested ones.
+- **Parity fixes** is the share of notes the post-processing has to flip or remove.
 
-## Uso
+In play testing (Hard and Expert) the density felt right, but the maps are hard to follow: the flow
+lacks the intent a human mapper puts into it.
 
-El modelo entrenado no se publica (ver [Datos y licencias](#datos-y-licencias)), así que hay que
-reproducir el dataset y entrenarlo:
+## How it works
+
+```
+song ─► BPM + phase ─► 1/4-beat grid ─► log-mel per step ─┐
+                                                          ├─► Transformer ─► notes ─► parity ─► zip
+difficulty + intensity per section ───────────────────────┘
+```
+
+**Grid.** The song is laid on a grid of quarter beats. BPM and phase come from a harmonic comb over
+the onset envelope: a coarse search over 10-second windows, then a fine one over the whole song. On
+the dataset it finds the right BPM (up to octave) for 97 % of songs and lands within 15 ms of the
+mapper's grid for 63 % (median error 8 ms).
+
+**Representation.** Each grid step has an 80-band log-mel spectrum averaged over the step, and one
+token per hand: empty, or one of 108 notes (4 columns × 3 rows × 9 cut directions).
+
+**Model.** An encoder-decoder Transformer. The encoder sees the audio, the position in the bar, the
+difficulty and the requested intensity. The decoder writes the notes for both hands step by step.
+Intensity is notes per beat in 8 levels, held constant over 4-bar blocks. During training it is
+measured from the map itself, so no labelling is needed.
+
+**Generation.** The song is split into 8 sections by clustering, the sections are ranked by energy,
+and each one gets an intensity within the usual range for the difficulty (or from `--curve`).
+Sampling runs over overlapping windows at temperature 1.0, with a penalty on repeating recent
+4-note motifs. Afterwards, crossed arms on simultaneous notes are swapped, each hand alternates
+forehand and backhand, and overlapping notes are dropped.
+
+## Usage
+
+Requires Python 3.12 and [uv](https://docs.astral.sh/uv/). Training needs an NVIDIA GPU.
 
 ```bash
 git clone https://github.com/PGSCOM/BeatGen && cd BeatGen
-uv venv --python 3.12 .venv && uv pip install -r requirements.txt
+uv venv --python 3.12 .venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# Rebuild the dataset from the public index (about 45 GB of downloads)
 hf download PGSCOM/beatgen-maps-index meta.jsonl --type dataset --local-dir .
-python download.py --from meta.jsonl    # 6303 mapas de BeatSaver, las mismas versiones (~45 GB)
-python prepare.py                       # → data/proc/*.npz (5408 canciones, ~2 GB)
-bash gpu.sh train --d 384 --layers 6 --steps 100000   # en una máquina con GPU NVIDIA (~75 min)
+python download.py --from meta.jsonl
+python prepare.py
+
+# Train (about 75 minutes on a single GPU)
+python train.py --d 384 --layers 6 --steps 100000
+
+# Generate
+python generate.py song.mp3 --diffs Hard Expert
+python generate.py song.mp3 --curve "0:0.5,30:2,75:1"   # notes per beat from each second
+python generate.py song.mp3 --bpm 128                   # if BPM detection is off
 ```
 
-Para generar un mapa:
+To play it, unzip the result into `Beat Saber_Data/CustomLevels/<folder>/` on PC, or into
+`ModData/<game>/Mods/SongCore/CustomLevels/` on modded Quest or Pico.
 
-```bash
-python generate.py cancion.mp3 --diffs Hard Expert              # → cancion_beatgen.zip
-python generate.py cancion.mp3 --curve "0:0.5,30:2,75:1"         # intensidad a mano (segundo:notas/beat)
-python generate.py cancion.mp3 --bpm 128                         # si la detección del BPM falla
-```
+`gpu.sh` runs the training on another machine and cleans up afterwards.
 
-Genera en CPU en ~1 minuto por dificultad. Para jugarlo, descomprime el zip en
-`Beat Saber_Data/CustomLevels/<carpeta>/` (PC) o en `ModData/<juego>/Mods/SongCore/CustomLevels/`
-(Quest y Pico con mods).
-
-Opciones del muestreo: `--temp` (1.0 por defecto; por debajo de 1 aparecen bucles) y `--rep`
-(0.3 por defecto: reduce la probabilidad de repetir un motivo reciente; 1 lo desactiva).
-
-## Cómo funciona
-
-```
-BeatSaver ─► download.py ─► data/raw/*.zip ─► prepare.py ─► data/proc/*.npz ─► train.py (GPU) ─► ckpt.pt
-                                                                                                   │
-canción.mp3 ─► BPM + fase ─► rejilla ─► audio por paso ─┐                                          │
-                                                        ├─► Transformer ◄──────────────────────────┘
-dificultad + intensidad (secciones o --curve) ──────────┘        │
-                                                                 ▼
-                                    tokens ─► notas ─► descruzar + paridad ─► zip
-```
-
-### 1. Datos (`download.py`)
-
-Mapas de BeatSaver ordenados por valoración:
-
-- 2466 **ranked** con rating ≥ 0.6, que son prácticamente todo el catálogo ranked.
-- 3837 **no ranked** con rating ≥ 0.85 y al menos 50 votos.
-
-Se excluyen los automappers, los declarados como IA y los que usan Noodle o Mapping Extensions,
-porque sacan notas de la rejilla. En total son 6303 mapas (45 GB), con sus metadatos en `meta.jsonl`
-(canción, mapper, rating, tags, hash de la versión). `download.py --from meta.jsonl` vuelve a
-descargar exactamente las mismas versiones.
-
-### 2. Representación (`beatmap.py`, `prepare.py`)
-
-Cada canción se convierte en dos secuencias alineadas sobre una **rejilla de 1/4 de beat**:
-
-- **Audio:** espectrograma log-mel de 80 bandas, promediado en cada paso.
-- **Notas:** un token por mano y paso. 0 = nada; 1–108 = columna (4) × fila (3) × dirección (9).
-
-Se descartan los mapas con cambios de BPM o en formato Info v4 (14 %). Quedan **5408 canciones**,
-y al encajar las notas en la rejilla se conserva el 94 % de ellas.
-
-### 3. Modelo (`model.py`)
-
-Transformer encoder-decoder que "traduce" audio a notas:
-
-- **Encoder:** audio por paso + posición dentro del compás + dificultad + intensidad (notas/beat
-  en 8 niveles, constante por bloques de 4 compases).
-- **Decoder:** genera paso a paso las notas de las dos manos, mirando las que ya ha puesto. Así
-  aprende patrones de flujo.
-
-La intensidad no hay que etiquetarla: al entrenar se calcula contando las notas del propio mapa.
-
-### 4. Entrenamiento (`train.py`, `gpu.sh`)
-
-Ventanas aleatorias de 64 beats alineadas al compás, AdamW con warmup y coseno, bf16 en GPU. El
-modelo final (d=384, 6 capas, 100k pasos) tardó 75 minutos en GPU. `gpu.sh` lo hace todo en otra
-máquina y la deja limpia después:
-
-```bash
-bash gpu.sh train --d 384 --layers 6 --steps 100000   # venv + entrenar sobre data/proc + subir ckpt a HF
-CKPT=otro.pt bash gpu.sh train ...                    # con otro nombre, sin pisar ckpt.pt
-bash gpu.sh clean                                     # borra venv, datos, cachés y token de HF
-```
-
-### 5. Generación (`generate.py`)
-
-1. **Rejilla:** BPM y fase con un peine armónico sobre la envolvente de onsets: primero una búsqueda
-   gruesa por ventanas de 10 s y después una fina sobre toda la canción.
-2. **Intensidad:** divide la canción en 8 secciones (clustering de librosa), las ordena por energía
-   y reparte entre el mínimo y el máximo de notas/beat de cada dificultad. Los silencios se quedan
-   en 0. Con `--curve` se fija a mano.
-3. **Muestreo:** autorregresivo en ventanas solapadas, con temperatura 1.0 y un freno a repetir
-   secuencias de 4 notas recientes.
-4. **Jugabilidad:** intercambia las columnas de las notas simultáneas con los brazos cruzados,
-   alterna cada mano entre forehand y backhand (tras 2 beats de pausa puede retomar en cualquier
-   sentido) y quita los choques en la misma celda.
-5. **Exportación:** `Info.dat` v2, un `.dat` por dificultad, el audio original en OGG y una portada.
-
-### 6. Medición (`calib.py`, `eval.py`)
-
-- `calib.py` ajusta las constantes con el dataset: rangos de notas/beat por dificultad (`NPB`) y
-  el retraso de los onsets (`ONSET_LATENCY` = 36 ms). Calibra con una mitad de las canciones y
-  evalúa con la otra. La rejilla acierta el BPM en el 97 % de las canciones (salvo octava) y deja
-  la fase a menos de 15 ms en el 63 % (error mediano: 8 ms).
-- `eval.py` compara lo generado con los mapas reales en canciones de validación: F1 de timing,
-  error de intensidad, notas que corrige la paridad y brazos cruzados, frente a la referencia.
-
-| Archivo | Qué hace |
+| File | Purpose |
 |---|---|
-| `download.py` | Descarga mapas y metadatos de BeatSaver, o reproduce un `meta.jsonl`. |
-| `beatmap.py` | Formatos de Beat Saber, tokens, audio, rejilla, paridad y exportación (`python beatmap.py` ejecuta su autotest). |
-| `prepare.py` | `data/raw/*.zip` → `data/proc/*.npz`. |
-| `model.py` | El Transformer. |
-| `train.py` | Entrenamiento. |
-| `generate.py` | Canción → zip. |
-| `calib.py` | Calibración y evaluación de la rejilla sobre el dataset. |
-| `eval.py` | Evaluación del modelo frente a mapas reales. |
-| `gpu.sh` | Entrenar en otra máquina con GPU sin dejar rastro. |
+| `download.py` | Downloads maps and metadata from BeatSaver, or an exact list from `meta.jsonl` |
+| `prepare.py` | Turns map zips into per-step features and tokens (`data/proc/*.npz`) |
+| `beatmap.py` | Map formats, tokens, audio features, grid estimation, parity, export |
+| `model.py` | The Transformer |
+| `train.py` | Training |
+| `generate.py` | Song to zip |
+| `eval.py` | Compares generated maps with human ones on validation songs |
+| `calib.py` | Dataset statistics and grid accuracy |
 
-## Problemas encontrados
+## Dataset
 
-Por si se retoma, estos son los errores que más costó ver:
+6303 maps from [BeatSaver](https://beatsaver.com):
 
-- **Fuga en la intensidad.** Al principio se calculaba con una ventana deslizante de 4 beats, y su
-  valor cambiaba justo en los pasos donde había notas. El modelo aprendió a leer las posiciones
-  ahí en vez de escuchar el audio: daba un F1 de 0.99 en evaluación y no servía con canciones
-  nuevas. Ahora es constante por bloques de 4 compases.
-- **`fix_parity` estropeaba mapas buenos.** Tras cada pausa obligaba a empezar con forehand y
-  volteaba cadenas enteras: corregía el 39 % de las notas de mapas *reales*. Ahora corrige el 4.7 %.
-- **Bucles a mitad de canción.** Cada ventana se condiciona en las notas que el propio modelo puso
-  antes. Con temperatura 0.9, un motivo repetido se reforzaba solo, hasta un 49 % de secuencias de
-  4 notas repetidas hacia el minuto 2:30 (en mapas reales, ~12 %). El principio de la canción salía
-  bien porque aún no había contexto. Se arregló con temperatura 1.0 y el freno `--rep`.
-- **El techo de la rejilla.** beat_this, un detector de beats neuronal reciente, no mejora al peine
-  armónico (56.5 % frente a 58.7 % de fase < 15 ms). Probablemente el límite está en la referencia:
-  no todos los mappers alinean la rejilla con el beat real. Un 13 % de los fallos cae a medio beat.
+- 2466 ranked maps rated 0.6 or higher.
+- 3837 unranked maps rated 0.85 or higher, with at least 50 votes.
 
-## Lo que quedó pendiente
+Automapped maps, maps declared as AI-made and maps using Noodle or Mapping Extensions are excluded.
+5408 of them are usable; the rest use variable BPM or the newer Info v4 format. Snapping notes to
+the grid keeps 94 % of them.
 
-- **Jugabilidad:** reglas por posición de la muñeca, notas que tapan la visión, bombas para resets
-  y muros.
-- **Crítico con replays de BeatLeader:** un modelo que prediga a partir de partidas reales qué
-  notas se fallan más de lo esperado. Serviría para elegir la versión más jugable de un mapa o como
-  recompensa para afinar el generador. Requiere revisar antes los términos de la API de BeatLeader.
-- **Estructura:** que dos estribillos iguales den patrones parecidos, y condicionar por estilo
-  usando los tags de BeatSaver (tech, speed, dance…).
-- **Datos:** soportar cambios de BPM e Info v4 (recuperaría el 14 % descartado), una rejilla de
-  1/8 o 1/12 para streams y tresillos, aumentar el dataset con espejo izquierda/derecha y probar
-  embeddings de un modelo de audio preentrenado.
-- **Rejilla:** decidir entre la fase φ y φ + medio beat con los onsets de graves (bombo).
+## What went wrong along the way
 
-Limitaciones actuales, marcadas con `ponytail:` en el código: BPM constante, sin Info v4, sin
-bombas, muros ni sliders, una nota por mano y paso, y los tresillos se redondean a 1/4 de beat.
+- **The intensity signal leaked note positions.** It was first computed with a sliding window, which
+  changes value exactly where notes are. The model learned to read notes from it and scored an F1 of
+  0.99 that meant nothing. Holding it constant over 4-bar blocks fixed that.
+- **The parity fix was breaking good maps.** It forced a forehand after every pause and flipped whole
+  chains, changing 39 % of the notes in human maps. Now it changes 4.7 %.
+- **The model looped halfway through songs.** Each window is conditioned on the notes already placed,
+  so at temperature 0.9 a repeated motif fed itself: up to 49 % of 4-note sequences were repeats by
+  minute 2:30, against about 12 % in human maps. Temperature 1.0 and the repetition penalty bring it
+  down to 3-6 %.
+- **Beat tracking hits a ceiling.** A recent neural beat tracker (beat_this) did no better than the
+  comb (56.5 % vs 58.7 % within 15 ms). The limit is probably the reference itself: not every mapper
+  aligns the grid to the actual beat.
 
-## Datos y licencias
+## Limitations
 
-| Qué | Dónde | Acceso |
-|---|---|---|
-| Código | GitHub [`PGSCOM/BeatGen`](https://github.com/PGSCOM/BeatGen) | Público, licencia MIT |
-| Índice: ids, hashes y metadatos de los 6303 mapas | HF [`PGSCOM/beatgen-maps-index`](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index) | Público |
-| Mapas, audio y `.npz` | — | No se publican; cada uno los descarga y procesa |
-| Modelo entrenado | — | No se publica |
+- Constant BPM only, and no Info v4 maps.
+- No bombs, walls, arcs or chains.
+- One note per hand per step, and triplets are rounded to the nearest quarter beat.
+- Parity only looks at cut direction, not wrist position.
+- Repeated choruses don't get matching patterns.
 
-### Por qué no se publican el modelo ni los datos
+## Data and licensing
 
-El código es nuestro y va con licencia MIT. Pero todo lo que sale de los mapas pertenece a otros:
+The code is MIT licensed. Everything derived from the maps belongs to someone else, so none of it is
+published:
 
-- **Los mapas son de sus mappers.** Los [términos de BeatSaver](https://beatsaver.com/policy/tos)
-  exigen permiso explícito por escrito para *"republishing or use of another user's content posted
-  on BeatSaver including derivative work"*, y aclaran que dar crédito no basta. Redistribuir los
-  zips, aunque sea dentro de un dataset, es justo eso.
-- **El audio tiene copyright.** Los zips llevan la canción completa, y quien sube un mapa a
-  BeatSaver declara tener sus derechos de distribución; quien lo descarga no los recibe.
-- **Los `.npz` tampoco son publicables.** Los tokens son una transcripción directa de las notas de
-  cada mapa, es decir, una obra derivada.
-- **El modelo es zona gris, y por eso no se publica.** Sus pesos son el resultado de entrenar con
-  mapas de otros sin su permiso. Los términos de BeatSaver no hablan de entrenar modelos, pero
-  prohíben "usar" el contenido de otros usuarios, incluidas obras derivadas, y un modelo capaz de
-  imitar su estilo puede considerarse una. Además, buena parte de la comunidad de mappers está en
-  contra de los generadores automáticos: BeatSaver obliga a declararlos y los separa del resto.
-  Publicarlo sin preguntar sería usar su trabajo de una forma que no han autorizado. Para hacerlo
-  habría que pedir permiso a BeatSaver o, mejor, a los mappers.
-- **El índice sí se publica.** Solo lleva ids, hashes y metadatos de la API pública, sin contenido.
-  Con él y `download.py --from`, cualquiera puede reconstruir el mismo dataset descargándolo él
-  mismo de BeatSaver, que es lo que permiten sus términos.
+- **Maps.** BeatSaver's [terms](https://beatsaver.com/policy/tos) require explicit written permission
+  for "republishing or use of another user's content posted on BeatSaver including derivative work",
+  and say that crediting the author is not enough.
+- **Audio.** The zips contain full commercial songs.
+- **Processed data.** The tokens are a direct transcription of each map, so they are a derivative work too.
+- **The trained model.** Its weights come from other people's work used without their permission. The
+  terms don't mention model training, but a model that imitates mappers' style can reasonably be
+  seen as a derivative work, and many mappers object to automatic mapping (BeatSaver requires AI-made
+  maps to be declared). Publishing it would need permission from BeatSaver or the mappers.
 
-El dataset privado con los zips y los `.npz` se borró al terminar el proyecto: se puede reconstruir
-desde el índice. En una comprobación del 12/11/2026, BeatSaver seguía sirviendo el 100 % de una
-muestra de 300 versiones exactas. Con el tiempo se pueden perder algunas, si un mapper sube una
-versión nueva de su mapa.
+What is published is the [index](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index): ids,
+version hashes and public metadata, with no map content. With it, `download.py --from` rebuilds the
+same dataset straight from BeatSaver. In November 2026 every map in a sample of 300 was still
+available; some versions may disappear over time as mappers update their maps.
 
-Si algún mapa generado se publica en BeatSaver, hay que marcarlo como hecho con IA, como exige la plataforma.
+Maps made with BeatGen must be marked as AI-generated if uploaded to BeatSaver.

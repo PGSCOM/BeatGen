@@ -1,7 +1,6 @@
-"""Calibra y evalúa sobre el dataset: notas conservadas, NPB por dificultad, BPM/fase de la rejilla.
+"""Dataset stats and grid accuracy. ONSET_LATENCY is fitted on half the songs and tested on the other half.
 
-uso: python calib.py [--max 0]
-ONSET_LATENCY se ajusta con la mitad de las canciones (id par en hash) y se evalúa con la otra mitad.
+usage: python calib.py
 """
 import argparse, pathlib, zlib
 from concurrent.futures import ProcessPoolExecutor
@@ -24,7 +23,7 @@ def one(path):
 
 
 def npb_windows(tok):
-    """Notas/beat en ventanas de 4 beats no vacías."""
+    """Notes per beat over non-empty 4-beat windows."""
     c = (tok > 0).sum(1)
     w = 4 * bm.SPB
     c = c[:len(c) // w * w].reshape(-1, w).sum(1) / 4
@@ -40,10 +39,10 @@ def main():
     files = sorted(pathlib.Path(a.raw).glob("*.zip"))[:a.max or None]
     with ProcessPoolExecutor(8) as ex:
         rs = [r for r in ex.map(one, files, chunksize=4) if r]
-    print(f"{len(rs)} mapas válidos de {len(files)} ({1 - len(rs) / len(files):.0%} descartados)")
+    print(f"{len(rs)} usable maps out of {len(files)} ({1 - len(rs) / len(files):.0%} skipped)")
 
     tot = np.array([v for r in rs for v in r[5].values()]).sum(0)
-    print(f"notas conservadas al tokenizar: {tot[1] / tot[0]:.1%}")
+    print(f"notes kept after tokenizing: {tot[1] / tot[0]:.1%}")
 
     win = {k: [] for k in bm.DIFFS}
     for r in rs:
@@ -59,23 +58,22 @@ def main():
             v = np.concatenate(v)
             print(f"NPB {k}: p15 {np.percentile(v, 15):.2f}  p50 {np.median(v):.2f}  p85 {np.percentile(v, 85):.2f}")
 
-    # rejilla: BPM correcto salvo octava y error de fase (s) frente a la rejilla del mapa
     ok, err, split = [], [], []
     for sid, bpm, off, bpm_e, off_e in (r[:5] for r in rs):
         ratio = np.log2(bpm_e / bpm)
         good = abs(ratio - round(ratio)) < 0.003
         ok.append(good)
         if good:
-            p = 60 / max(bpm, bpm_e)  # el peine más fino contiene al otro
-            e = (off_e - off + bm.ONSET_LATENCY) % p  # sin la compensación actual, para recalibrarla
+            p = 60 / max(bpm, bpm_e)
+            e = (off_e - off + bm.ONSET_LATENCY) % p
             err.append(e - p if e > p / 2 else e)
             split.append(zlib.crc32(sid.encode()) % 2)
-    print(f"BPM correcto (salvo octava): {np.mean(ok):.1%}")
+    print(f"BPM correct (up to octave): {np.mean(ok):.1%}")
     err, split = np.array(err), np.array(split)
     lat = np.median(err[split == 0])
     val = np.abs(err[split == 1] - lat)
-    print(f"ONSET_LATENCY recalibrada (mitad A): {lat * 1000:.1f} ms (actual {bm.ONSET_LATENCY * 1000:.0f} ms)")
-    print(f"fase en mitad B: <15 ms {np.mean(val < 0.015):.1%}, <30 ms {np.mean(val < 0.03):.1%}, mediana {np.median(val) * 1000:.1f} ms")
+    print(f"ONSET_LATENCY fitted on half A: {lat * 1000:.1f} ms (current {bm.ONSET_LATENCY * 1000:.0f} ms)")
+    print(f"phase on half B: <15 ms {np.mean(val < 0.015):.1%}, <30 ms {np.mean(val < 0.03):.1%}, median {np.median(val) * 1000:.1f} ms")
 
 
 if __name__ == "__main__":

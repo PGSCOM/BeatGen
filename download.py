@@ -1,8 +1,8 @@
-"""Descarga mapas ranked de BeatSaver a data/raw/<id>.zip y sus metadatos a data/raw/meta.jsonl.
+"""Downloads maps from BeatSaver to data/raw/<id>.zip and their metadata to data/raw/meta.jsonl.
 
-uso: python download.py --max 3000 --min-rating 0.6                          # ranked
-     python download.py --leaderboard All --min-rating 0.85 --min-votes 50   # no ranked, bien valorados
-     python download.py --from meta.jsonl      # reproduce un dataset exacto (mismos ids y versiones)
+usage: python download.py --from meta.jsonl
+       python download.py --max 3000 --min-rating 0.6
+       python download.py --leaderboard All --min-rating 0.85 --min-votes 50
 """
 import argparse, json, pathlib, time, urllib.parse, urllib.request
 
@@ -22,8 +22,8 @@ def main():
     ap.add_argument("--max", type=int, default=3000)
     ap.add_argument("--min-rating", type=float, default=0.75)
     ap.add_argument("--leaderboard", default="Ranked", help="Ranked | All | ScoreSaber | BeatLeader")
-    ap.add_argument("--min-votes", type=int, default=0, help="mínimo de votos (positivos + negativos)")
-    ap.add_argument("--from", dest="src", help="meta.jsonl de un dataset publicado: descarga esas versiones")
+    ap.add_argument("--min-votes", type=int, default=0, help="minimum number of votes (up + down)")
+    ap.add_argument("--from", dest="src", help="meta.jsonl of a published dataset: download exactly those versions")
     a = ap.parse_args()
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -34,7 +34,7 @@ def main():
                 try:
                     f.write_bytes(get(CDN.format(hash=m["hash"])))
                 except OSError as e:
-                    print("fallo", m["id"], e)  # p.ej. el mapper subió una versión nueva
+                    print("failed", m["id"], e)
                 time.sleep(0.05)
         return
     q = urllib.parse.urlencode({"leaderboard": a.leaderboard, "sortOrder": "Rating",
@@ -55,14 +55,14 @@ def main():
             v = m["versions"][0]
             if not any(d["characteristic"] == "Standard" for d in v["diffs"]):
                 continue
-            if any(d.get("ne") or d.get("me") for d in v["diffs"]):  # mods que sacan notas de la rejilla
+            if any(d.get("ne") or d.get("me") for d in v["diffs"]):  # Noodle / Mapping Extensions
                 continue
             f = out / f"{m['id']}.zip"
             if not f.exists():
                 try:
                     f.write_bytes(get(v["downloadURL"]))
                 except OSError as e:
-                    print("fallo", m["id"], e)
+                    print("failed", m["id"], e)
                     continue
                 time.sleep(0.05)
             if m["id"] not in seen:
@@ -79,7 +79,7 @@ def main():
             n += 1
             if n >= a.max:
                 break
-        print(f"página {page}: {n} mapas")
+        print(f"page {page}: {n} maps")
         page += 1
 
 

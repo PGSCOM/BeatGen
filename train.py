@@ -1,6 +1,6 @@
-"""Entrena BeatGen sobre data/proc/*.npz con ventanas aleatorias de la rejilla.
+"""Trains BeatGen on data/proc/*.npz using random bar-aligned windows.
 
-uso: python train.py --steps 50000 --batch 32
+usage: python train.py --d 384 --layers 6 --steps 100000
 """
 import argparse, glob, math, random, time
 import numpy as np
@@ -13,7 +13,7 @@ BAR = 4 * SPB
 
 
 def load(files):
-    items = []  # (feats, tokens, diff_idx, dens)
+    items = []
     for f in files:
         d = np.load(f)
         for k in DIFFS:
@@ -26,7 +26,7 @@ def batch(items, n, W):
     f, t, df, de = [], [], [], []
     for feats, tok, di, dens in random.choices(items, k=n):
         T = len(tok)
-        s = random.randrange(0, max(1, T - W) // BAR + 1) * BAR  # alineado al compás
+        s = random.randrange(0, max(1, T - W) // BAR + 1) * BAR
         pad = lambda a: np.pad(a[s:s + W], [(0, W - len(a[s:s + W]))] + [(0, 0)] * (a.ndim - 1))
         f.append(pad(feats).astype(np.float32)); t.append(pad(tok)); de.append(pad(dens)); df.append(di)
     t = torch.tensor(np.stack(t))
@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--data", default="data/proc")
     ap.add_argument("--steps", type=int, default=50000)
     ap.add_argument("--batch", type=int, default=32)
-    ap.add_argument("--window", type=int, default=256, help="pasos de rejilla (múltiplo de 32)")
+    ap.add_argument("--window", type=int, default=256, help="grid steps (multiple of 32)")
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--d", type=int, default=256)
     ap.add_argument("--layers", type=int, default=4)
@@ -50,9 +50,9 @@ def main():
 
     files = sorted(glob.glob(f"{a.data}/*.npz"))
     random.Random(0).shuffle(files)
-    nv = max(1, len(files) // 20)  # 5% de canciones para validación
+    nv = max(1, len(files) // 20)  # 5 % of songs for validation
     val, tr = load(files[:nv]), load(files[nv:])
-    print(f"{len(files)} canciones, {len(tr)} dificultades de entrenamiento, {len(val)} de validación")
+    print(f"{len(files)} songs, {len(tr)} training difficulties, {len(val)} validation")
 
     dev = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     model = BeatGen(d=a.d, layers=a.layers, max_len=a.window).to(dev)
@@ -84,7 +84,7 @@ def main():
             model.eval()
             with torch.no_grad():
                 vl = sum(loss_of(batch(val, a.batch, a.window)).item() for _ in range(4)) / 4
-            print(f"paso {step} loss {loss.item():.4f} val {vl:.4f} {time.time() - t0:.0f}s", flush=True)
+            print(f"step {step} loss {loss.item():.4f} val {vl:.4f} {time.time() - t0:.0f}s", flush=True)
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step + 1, "cfg": model.cfg}, a.out)
 
 

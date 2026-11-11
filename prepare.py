@@ -1,6 +1,6 @@
-"""data/raw/*.zip -> data/proc/<id>.npz con feats (T, N_MELS) y tokens (T, 2) por dificultad.
+"""data/raw/*.zip -> data/proc/<id>.npz with feats (T, N_MELS) and tokens (T, 2) per difficulty.
 
-uso: python prepare.py [--workers 8]
+usage: python prepare.py [--workers 8]
 """
 import argparse, pathlib, traceback
 from concurrent.futures import ProcessPoolExecutor
@@ -11,11 +11,11 @@ from beatmap import load_map, load_audio, step_features, notes_to_tokens, SR, SP
 def process(args):
     src, dst = args
     if dst.exists():
-        return "ya"
+        return "done"
     try:
         m = load_map(src.read_bytes())
         if m is None:
-            return "descartado"
+            return "skipped"
         y = load_audio(m["audio"])
         n = int((len(y) / SR - m["offset"]) * m["bpm"] / 60 * SPB)
         feats = step_features(y, m["bpm"], m["offset"], n)
