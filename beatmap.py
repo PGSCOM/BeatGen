@@ -71,10 +71,16 @@ def estimate_grid(y, lo=90.0, hi=180.0):
     return bpm, (phis[score.argmax()] - ONSET_LATENCY) % period
 
 
+DENS_BLOCK = 16 * SPB  # 4 compases
+
+
 def density_levels(tokens):
-    """Notas/beat en ventana de 4 beats -> nivel 0..N_DENS-1 por paso."""
-    per_beat = np.convolve((tokens > 0).sum(1), np.ones(4 * SPB), "same") / 4
-    return np.digitize(per_beat, DENS_EDGES)
+    """Notas/beat por bloques de 4 compases -> nivel 0..N_DENS-1 por paso.
+    Constante dentro del bloque: una ventana deslizante cambia justo donde hay notas y le chiva al modelo su posición."""
+    c = (tokens > 0).sum(1)
+    n = -(-len(c) // DENS_BLOCK) * DENS_BLOCK
+    per_beat = np.pad(c, (0, n - len(c))).reshape(-1, DENS_BLOCK).sum(1) / (DENS_BLOCK / SPB)
+    return np.repeat(np.digitize(per_beat, DENS_EDGES), DENS_BLOCK)[:len(c)]
 
 
 # ---------- lectura de mapas ----------
@@ -216,6 +222,8 @@ if __name__ == "__main__":  # autocomprobación
     assert [n[4] for n in fixed if n[3] == 0] == [1, 0, 8]  # down, (down->up), punto
     assert [n[4] for n in fixed if n[3] == 1] == [1, 0]
     assert fix_parity([(0, 1, 0, 0, 1), (0, 1, 0, 1, 1)]) == [(0, 1, 0, 0, 1)]  # choque de celda
-    assert density_levels(np.array([[1, 0]] * 32))[16] == N_DENS - 1  # 4 notas/beat -> nivel máximo
-    assert density_levels(np.array([[1, 0], [0, 0], [0, 0], [0, 0]] * 8))[16] == DENS_EDGES.index(1) + 1
+    assert density_levels(np.array([[1, 0]] * 64))[16] == N_DENS - 1  # 4 notas/beat -> nivel máximo
+    assert density_levels(np.array([[1, 0], [0, 0], [0, 0], [0, 0]] * 16))[16] == DENS_EDGES.index(1) + 1
+    rnd = (np.random.default_rng(0).random((128, 2)) < 0.3).astype(int)
+    assert len(set(density_levels(rnd)[:64])) == 1  # sin fugas: constante dentro del bloque
     print("ok")

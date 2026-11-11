@@ -40,7 +40,10 @@ dificultad + intensidad por paso (secciones o --curve) ────────�
 **Hecho:** fase 1, con 5408 canciones procesadas y subidas a HF, y las constantes recalibradas.
 El pipeline funciona de punta a punta.
 
-**En curso:** fase 2, entrenando en GPU con `gpu.sh`.
+**En curso:** fase 2. Primer entrenamiento en GPU: 50k pasos en 15 min, val 0.66 → 0.41. No vale:
+la intensidad se calculaba con una ventana deslizante que cambiaba justo donde había notas, y el
+modelo aprendió a leer ahí sus posiciones en vez de escuchar el audio (F1 0.93 en `eval.py`, imposible).
+Ahora es constante por bloques de 4 compases; hay que reentrenar.
 
 ## Plan
 
