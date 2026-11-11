@@ -65,7 +65,8 @@ def main():
     ap.add_argument("--data", default="data/proc")
     ap.add_argument("--n", type=int, default=60, help="dificultades a evaluar")
     ap.add_argument("--steps", type=int, default=1024, help="pasos por canción (desde el inicio)")
-    ap.add_argument("--temp", type=float, default=0.9)
+    ap.add_argument("--temp", type=float, default=1.0)
+    ap.add_argument("--rep", type=float, default=0.3)
     a = ap.parse_args()
 
     files = sorted(glob.glob(f"{a.data}/*.npz"))
@@ -82,7 +83,7 @@ def main():
     for f, k in items[:a.n]:
         d = np.load(f)
         feats, real = d["feats"][:a.steps].astype(np.float32), d[k][:a.steps]
-        tok = sample(model, feats, DIFFS.index(k), density_levels(real), ck["cfg"]["max_len"], a.temp)
+        tok = sample(model, feats, DIFFS.index(k), density_levels(real), ck["cfg"]["max_len"], a.temp, a.rep)
         base = baseline(feats, (real > 0).any(1))
         ra, ga, ba = (real > 0).any(1), (tok > 0).any(1), (base > 0).any(1)
         rows[k].append((f1(ga, ra, 0), f1(ga, ra), f1(ba, ra, 0), f1(ba, ra), npb_err((tok > 0).sum(1), (real > 0).sum(1)), parity_fix_rate(tok)))
