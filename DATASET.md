@@ -6,7 +6,7 @@ viewer: false
 tags: [beat-saber, rhythm-game, music, audio]
 ---
 
-# BeatGen maps (privado)
+# BeatGen maps (privado, proyecto archivado)
 
 Datos de entrenamiento de [BeatGen](https://github.com/PGSCOM/BeatGen): mapas ranked de BeatSaver
 (rating ≥ 0.6, sin automappers ni mapas declarados como IA).

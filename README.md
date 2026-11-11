@@ -1,172 +1,191 @@
 # BeatGen
 
-Generador de mapas de Beat Saber con IA: le das una canción y devuelve un zip listo para
-`CustomLevels`. A diferencia de Beat Sage o DeepSaber, el mapa es **controlable**: tiene una
-intensidad distinta en verso y estribillo, y sigue la estructura de la canción.
+> **Proyecto archivado (noviembre de 2026).** Funciona de punta a punta y genera mapas que se pueden
+> jugar, pero no llega a la calidad de un mapa hecho a mano. Este README resume cómo está montado,
+> qué se consiguió y qué quedó pendiente.
+
+Generador de mapas de Beat Saber con IA. Le das una canción y devuelve un zip listo para
+`CustomLevels`. La diferencia con Beat Sage o DeepSaber es que la intensidad se puede **controlar**:
+el mapa es más suave en los versos y más cargado en los estribillos, de forma automática a partir de
+la estructura de la canción o a mano con una curva.
+
+## Resultado
+
+- **Medido** (`eval.py`, 60 dificultades de canciones que el modelo no vio al entrenar): el modelo
+  supera a una referencia basada en los picos del audio en precisión de timing y cumple el objetivo
+  de intensidad.
+- **Jugado** ("For Real" de Pharrell Williams, Hard y Expert, en unas Pico 4): la cantidad de notas
+  está bien y el mapa se puede jugar, pero cuesta seguirlo. Le falta el flujo y la intención de un
+  mapper humano. En versiones anteriores aparecían patrones imposibles y bucles a mitad de canción;
+  ambos se corrigieron (ver [Problemas encontrados](#problemas-encontrados)).
+
+| | F1 exacto | F1 ±1 paso | error de intensidad | notas que corrige la paridad |
+|---|---|---|---|---|
+| **Modelo final** (d=384, 6 capas) | **0.66** | **0.74** | **17 %** | 8 % |
+| Modelo pequeño (d=256, 4 capas) | 0.59 | 0.71 | 18 % | 5 % |
+| Referencia: notas en los picos del audio | 0.39 | 0.72 | — | — |
+| Mapas reales | — | — | — | 4.7 % |
+
+La referencia lo tiene fácil a propósito: pone en cada bloque de 4 compases exactamente el mismo
+número de notas que el mapa real.
+
+## Uso
 
 ```bash
 uv venv --python 3.12 .venv && uv pip install -r requirements.txt
-python download.py --max 4000 --min-rating 0.6   # mapas ranked de BeatSaver → data/raw (~8 MB/mapa)
-python download.py --from meta.jsonl   # o reproducir el dataset publicado (mismas versiones)
-python prepare.py                      # → data/proc/*.npz (features por paso + tokens)
-hf upload PGSCOM/beatgen-maps data . --type dataset --private      # copia en HF (privada)
-hf upload PGSCOM/beatgen-maps DATASET.md README.md --type dataset
-hf upload PGSCOM/beatgen-maps-index data/raw/meta.jsonl meta.jsonl --type dataset   # índice público
-hf upload PGSCOM/beatgen-maps-index DATASET_PUBLIC.md README.md --type dataset
-python train.py --steps 50000          # → ckpt.pt (usa GPU si hay)
-python generate.py cancion.mp3 --diffs Hard Expert
-python generate.py cancion.mp3 --curve "0:0.5,30:2,75:1"   # intensidad manual (seg:notas/beat)
+hf download PGSCOM/beatgen-ckpt ckpt.pt --local-dir .          # modelo entrenado (repo privado)
+python generate.py cancion.mp3 --diffs Hard Expert              # → cancion_beatgen.zip
+python generate.py cancion.mp3 --curve "0:0.5,30:2,75:1"         # intensidad a mano (segundo:notas/beat)
+python generate.py cancion.mp3 --bpm 128                         # si la detección del BPM falla
 ```
+
+Genera en CPU en ~1 minuto por dificultad. Para jugarlo, descomprime el zip en
+`Beat Saber_Data/CustomLevels/<carpeta>/` (PC) o en `ModData/<juego>/Mods/SongCore/CustomLevels/`
+(Quest y Pico con mods).
+
+Opciones del muestreo: `--temp` (1.0 por defecto; por debajo de 1 aparecen bucles) y `--rep`
+(0.3 por defecto: reduce la probabilidad de repetir un motivo reciente; 1 lo desactiva).
 
 ## Cómo funciona
 
 ```
-audio ─► BPM + fase ─► rejilla (4 pasos/beat) ─► log-mel por paso ─┐
-                                                                   ├─► Transformer ─► tokens ─► paridad ─► zip
-dificultad + intensidad por paso (secciones o --curve) ────────────┘
+BeatSaver ─► download.py ─► data/raw/*.zip ─► prepare.py ─► data/proc/*.npz ─► train.py (GPU) ─► ckpt.pt
+                                                                                                   │
+canción.mp3 ─► BPM + fase ─► rejilla ─► audio por paso ─┐                                          │
+                                                        ├─► Transformer ◄──────────────────────────┘
+dificultad + intensidad (secciones o --curve) ──────────┘        │
+                                                                 ▼
+                                    tokens ─► notas ─► descruzar + paridad ─► zip
 ```
 
-| Pieza | Archivo | Detalle |
-|---|---|---|
-| Descarga | `download.py` | Mapas ranked de BeatSaver ordenados por rating; excluye automappers y los declarados como IA. |
-| Rejilla | `beatmap.estimate_grid` | Peine armónico sobre los onsets. En 5408 mapas, el BPM acierta en el 97 % (salvo octava) y la fase queda a menos de 15 ms en el 63 % (error mediano de 8 ms). |
-| Tokens | `beatmap.py` | Por paso y mano: 0 = nada, o una de 108 notas (columna × fila × dirección). |
-| Modelo | `model.py` | Encoder: audio + dificultad + intensidad. Decoder causal: notas de las dos manos. |
-| Control | `generate.py` | La intensidad (notas/beat, 8 niveles) sale de los propios mapas al entrenar. Al generar, se calcula a partir de las secciones de la canción (clustering + energía) o de `--curve`. |
-| Jugabilidad | `beatmap.fix_parity` | Alterna forehand/backhand en cada mano y quita los choques entre manos. |
+### 1. Datos (`download.py`)
 
-## Estado
+Mapas de BeatSaver ordenados por valoración:
 
-**Hecho:** fase 1, con 5408 canciones procesadas y subidas a HF, y las constantes recalibradas.
-El pipeline funciona de punta a punta.
+- 2466 **ranked** con rating ≥ 0.6, que son prácticamente todo el catálogo ranked.
+- 3837 **no ranked** con rating ≥ 0.85 y al menos 50 votos.
 
-**Hecho:** fase 2. Modelo d=384, 6 capas, 100k pasos (75 min en GPU), en `PGSCOM/beatgen-ckpt`.
-`eval.py` sobre 60 dificultades de validación (1024 pasos cada una):
+Se excluyen los automappers, los declarados como IA y los que usan Noodle o Mapping Extensions,
+porque sacan notas de la rejilla. En total son 6303 mapas (45 GB), con sus metadatos en `meta.jsonl`
+(canción, mapper, rating, tags, hash de la versión). `download.py --from meta.jsonl` vuelve a
+descargar exactamente las mismas versiones.
 
-| | F1 | F1 ±1 | err. intensidad | paridad corregida |
-|---|---|---|---|---|
-| Modelo grande (temp 1.0, freno de repetición) | **0.66** | **0.74** | **17 %** | 8 % |
-| Modelo pequeño (d=256, 4 capas, temp 0.9) | 0.59 | 0.71 | 18 % | 5 % |
-| Referencia (picos de flujo, nº de notas del mapa real) | 0.39 | 0.72 | — | — |
-| Mapas reales | — | — | — | 4.7 % |
+### 2. Representación (`beatmap.py`, `prepare.py`)
 
-Por el camino:
-- **Fuga en la intensidad:** se calculaba con una ventana deslizante que cambiaba justo donde había
-  notas, y el modelo leía ahí sus posiciones (F1 0.99 falso). Ahora es constante por bloques de 4 compases.
-- **`fix_parity`:** tras una pausa forzaba forehand y volteaba cadenas enteras (corregía el 39 % de las
-  notas de mapas reales). Ahora retoma en cualquier sentido.
-- **Bucles a mitad de canción:** cada ventana se condiciona en sus propias notas y, con temperatura 0.9,
-  un motivo repetido se reforzaba (hasta 49 % de 4-gramas repetidos hacia el minuto 2:30, frente a ~12 %
-  en mapas reales). Con temperatura 1.0 y un freno suave a repetir motivos recientes (`--rep 0.3`) queda en 3–6 %.
+Cada canción se convierte en dos secuencias alineadas sobre una **rejilla de 1/4 de beat**:
 
-**En curso:** fase 3. Primera prueba en el juego ("For Real", Pharrell Williams): la densidad está bien,
-pero aparecen patrones imposibles y había repetición a mitad de canción (ya corregida).
+- **Audio:** espectrograma log-mel de 80 bandas, promediado en cada paso.
+- **Notas:** un token por mano y paso. 0 = nada; 1–108 = columna (4) × fila (3) × dirección (9).
 
-## Plan
+Se descartan los mapas con cambios de BPM o en formato Info v4 (14 %). Quedan **5408 canciones**,
+y al encajar las notas en la rejilla se conserva el 94 % de ellas.
 
-Cada fase termina con una condición medible. Mientras no se cumpla, no se pasa a la siguiente.
+### 3. Modelo (`model.py`)
 
-### Fase 1: dataset ✅
+Transformer encoder-decoder que "traduce" audio a notas:
 
-- **6303 mapas** descargados (45 GB): 2466 ranked con rating ≥ 0.6, que son casi todo el catálogo
-  ranked, más 3837 no ranked con rating ≥ 0.85 y ≥ 50 votos, sin Noodle ni Mapping Extensions.
-  De ellos, **5408 son útiles**; el 14 % se descarta, sobre todo por cambios de BPM.
-- Están en el dataset privado [PGSCOM/beatgen-maps](https://huggingface.co/datasets/PGSCOM/beatgen-maps)
-  (zips, `meta.jsonl` y `.npz`). No puede ser público (ver `DATASET.md`). El índice
-  [PGSCOM/beatgen-maps-index](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index), también
-  privado de momento, solo lleva ids y hashes; con él, `download.py --from` reproduce el dataset.
-- `calib.py` sobre el dataset completo: se conserva el 94.3 % de las notas, nuevos rangos `NPB` y
-  `ONSET_LATENCY` = 36 ms (calibrada con una mitad de las canciones y evaluada con la otra).
-- Rejilla en validación: BPM correcto en el 97.3 % (salvo octava), fase < 15 ms en el 62.9 %
-  y error mediano de 8 ms. De los fallos, un 13 % cae a medio beat (se engancha al contratiempo)
-  y el resto está repartido.
-  - beat_this (CPJKU), un tracker neuronal reciente, no mejora: con su fase y el BPM del peine
-    queda en el 56.5 % sobre 138 canciones, frente al 58.7 % del peine. Si dos métodos
-    independientes se quedan en el mismo techo, el límite probablemente está en la propia
-    referencia: no todos los mapas tienen la rejilla alineada con el beat del audio.
-  - Por eso se baja el objetivo del 80 % (medido en 36 mapas) a lo que hay. Ya existe `--bpm` para
-    corregir a mano; la fase a medio beat se puede atacar más adelante, por ejemplo eligiendo entre
-    φ y φ + p/2 con los onsets de graves (bombo).
+- **Encoder:** audio por paso + posición dentro del compás + dificultad + intensidad (notas/beat
+  en 8 niveles, constante por bloques de 4 compases).
+- **Decoder:** genera paso a paso las notas de las dos manos, mirando las que ya ha puesto. Así
+  aprende patrones de flujo.
 
-**Listo:** 5408 canciones (≥ 2500). La fase se queda en el 63 % < 15 ms, por debajo del 80 %
-previsto, por lo explicado arriba.
+La intensidad no hay que etiquetarla: al entrenar se calcula contando las notas del propio mapa.
 
-### Fase 2: modelo base
+### 4. Entrenamiento (`train.py`, `gpu.sh`)
 
-- Entrenar en GPU; en CPU no es viable. En otra máquina Ubuntu con GPU:
-  ```bash
-  git clone https://github.com/PGSCOM/BeatGen && cd BeatGen
-  bash gpu.sh train --steps 50000      # venv + .npz de HF + train.py + sube ckpt.pt a PGSCOM/beatgen-ckpt
-  CKPT=ckpt_big.pt bash gpu.sh train --d 384 --layers 6 --steps 100000   # otro nombre, no pisa ckpt.pt
-  bash gpu.sh clean && cd .. && rm -rf BeatGen
-  ```
-  Después, en local: `hf download PGSCOM/beatgen-ckpt ckpt.pt --local-dir .`
-- Crear `eval.py`, que mida sobre las canciones de validación:
-  - **Timing:** F1 entre las notas generadas y las del mapa real (tolerancia ±1 paso).
-  - **Control:** error entre las notas/beat pedidas y las generadas, sección a sección.
-  - **Flujo:** cuántas notas tiene que corregir `fix_parity`; cuantas menos, mejor ha aprendido el modelo.
-- Compararlo con una referencia tonta: tantas notas como el mapa real por bloque, en los picos de
-  flujo espectral, con manos y direcciones alternas.
+Ventanas aleatorias de 64 beats alineadas al compás, AdamW con warmup y coseno, bf16 en GPU. El
+modelo final (d=384, 6 capas, 100k pasos) tardó 75 minutos en GPU. `gpu.sh` lo hace todo en otra
+máquina y la deja limpia después:
 
-**Listo cuando:** supere a la referencia en F1 y el error de intensidad sea < 20 %.
+```bash
+bash gpu.sh train --d 384 --layers 6 --steps 100000   # venv + .npz de HF + entrenar + subir ckpt
+CKPT=otro.pt bash gpu.sh train ...                    # con otro nombre, sin pisar ckpt.pt
+bash gpu.sh clean                                     # borra venv, datos, cachés y token de HF
+```
 
-### Fase 3: jugabilidad
+### 5. Generación (`generate.py`)
 
-- Probar mapas en el juego, en Hard y en Expert, y apuntar qué patrones fallan.
-- Mejorar la paridad: posición de la muñeca, resets, brazos cruzados y notas que tapan la visión.
-- Añadir bombas para los resets y muros básicos.
-- **Crítico entrenado con replays de BeatLeader:** sustituir las reglas escritas a mano por
-  lo que hacen los jugadores de verdad.
-  - Descargar los replays (`.bsor`) de los mapas ranked, limitados a unos 50 por mapa, y
-    revisar antes los términos de uso y los límites de peticiones de la API.
-  - Sacar etiquetas por nota (tasa de fallo, precisión, ángulos de swing) y alinearlas con los tokens.
-  - Entrenar un modelo pequeño que, a partir del contexto de notas anteriores, prediga la
-    probabilidad de fallo y la precisión de la siguiente.
-  - Normalizar por el nivel del jugador (pp) y por la densidad. Lo que hay que aprender son
-    los fallos que sobran respecto a lo esperado, no los fallos sin más: los mapas ranked son
-    difíciles a propósito.
-  - Usarlo, de menos a más trabajo:
-    1. Generar varias versiones de un mapa y quedarse con la más jugable para su dificultad.
-    2. Dar menos peso al entrenar a los tramos que se juegan peor de lo esperado.
-    3. Afinar el generador con el crítico como recompensa (aprendizaje por refuerzo).
-  - Limitación: solo los mapas ranked y populares tienen replays suficientes, así que el
-    crítico solo conocerá ese estilo.
+1. **Rejilla:** BPM y fase con un peine armónico sobre la envolvente de onsets: primero una búsqueda
+   gruesa por ventanas de 10 s y después una fina sobre toda la canción.
+2. **Intensidad:** divide la canción en 8 secciones (clustering de librosa), las ordena por energía
+   y reparte entre el mínimo y el máximo de notas/beat de cada dificultad. Los silencios se quedan
+   en 0. Con `--curve` se fija a mano.
+3. **Muestreo:** autorregresivo en ventanas solapadas, con temperatura 1.0 y un freno a repetir
+   secuencias de 4 notas recientes.
+4. **Jugabilidad:** intercambia las columnas de las notas simultáneas con los brazos cruzados,
+   alterna cada mano entre forehand y backhand (tras 2 beats de pausa puede retomar en cualquier
+   sentido) y quita los choques en la misma celda.
+5. **Exportación:** `Info.dat` v2, un `.dat` por dificultad, el audio original en OGG y una portada.
 
-**Listo cuando:** se puedan jugar 10 canciones distintas de principio a fin sin ningún patrón
-imposible, y elegir el mapa con el crítico baje la tasa de fallo en las pruebas de juego
-frente a quedarse con el primero generado.
+### 6. Medición (`calib.py`, `eval.py`)
 
-### Fase 4: control y estructura
+- `calib.py` ajusta las constantes con el dataset: rangos de notas/beat por dificultad (`NPB`) y
+  el retraso de los onsets (`ONSET_LATENCY` = 36 ms). Calibra con una mitad de las canciones y
+  evalúa con la otra. La rejilla acierta el BPM en el 97 % de las canciones (salvo octava) y deja
+  la fase a menos de 15 ms en el 63 % (error mediano: 8 ms).
+- `eval.py` compara lo generado con los mapas reales en canciones de validación: F1 de timing,
+  error de intensidad, notas que corrige la paridad y brazos cruzados, frente a la referencia.
 
-- Que las repeticiones se reconozcan: el mismo estribillo debería generar patrones parecidos.
-- Control por sección desde la línea de comandos (listar las secciones detectadas y editarlas),
-  además de `--curve`.
-- Condicionar por estilo usando los tags de BeatSaver (tech, speed, dance…).
+| Archivo | Qué hace |
+|---|---|
+| `download.py` | Descarga mapas y metadatos de BeatSaver, o reproduce un `meta.jsonl`. |
+| `beatmap.py` | Formatos de Beat Saber, tokens, audio, rejilla, paridad y exportación (`python beatmap.py` ejecuta su autotest). |
+| `prepare.py` | `data/raw/*.zip` → `data/proc/*.npz`. |
+| `model.py` | El Transformer. |
+| `train.py` | Entrenamiento. |
+| `generate.py` | Canción → zip. |
+| `calib.py` | Calibración y evaluación de la rejilla sobre el dataset. |
+| `eval.py` | Evaluación del modelo frente a mapas reales. |
+| `gpu.sh` | Entrenar en otra máquina con GPU sin dejar rastro. |
 
-**Listo cuando:** dos estribillos iguales den patrones reconocibles como el mismo, y el estilo cambie el mapa de forma visible.
+## Problemas encontrados
 
-### Fase 5: más datos y más resolución
+Por si se retoma, estos son los errores que más costó ver:
 
-- Mapas curated o con muy buen rating aunque no sean ranked.
-- Soporte de Info v4 y de cambios de BPM.
-- Mapas oficiales convertidos al formato custom (revisar antes la licencia).
-- Subir la rejilla a 1/8 o 1/12 para streams y tresillos.
-- Aumentar el dataset con espejo izquierda/derecha.
-- Probar embeddings de un modelo de audio preentrenado en lugar del log-mel.
+- **Fuga en la intensidad.** Al principio se calculaba con una ventana deslizante de 4 beats, y su
+  valor cambiaba justo en los pasos donde había notas. El modelo aprendió a leer las posiciones
+  ahí en vez de escuchar el audio: daba un F1 de 0.99 en evaluación y no servía con canciones
+  nuevas. Ahora es constante por bloques de 4 compases.
+- **`fix_parity` estropeaba mapas buenos.** Tras cada pausa obligaba a empezar con forehand y
+  volteaba cadenas enteras: corregía el 39 % de las notas de mapas *reales*. Ahora corrige el 4.7 %.
+- **Bucles a mitad de canción.** Cada ventana se condiciona en las notas que el propio modelo puso
+  antes. Con temperatura 0.9, un motivo repetido se reforzaba solo, hasta un 49 % de secuencias de
+  4 notas repetidas hacia el minuto 2:30 (en mapas reales, ~12 %). El principio de la canción salía
+  bien porque aún no había contexto. Se arregló con temperatura 1.0 y el freno `--rep`.
+- **El techo de la rejilla.** beat_this, un detector de beats neuronal reciente, no mejora al peine
+  armónico (56.5 % frente a 58.7 % de fase < 15 ms). Probablemente el límite está en la referencia:
+  no todos los mappers alinean la rejilla con el beat real. Un 13 % de los fallos cae a medio beat.
 
-**Listo cuando:** cada cambio mejore las métricas de `eval.py`; si no las mejora, no entra.
+## Lo que quedó pendiente
 
-### Fase 6: producto
+- **Jugabilidad:** reglas por posición de la muñeca, notas que tapan la visión, bombas para resets
+  y muros.
+- **Crítico con replays de BeatLeader:** un modelo que prediga a partir de partidas reales qué
+  notas se fallan más de lo esperado. Serviría para elegir la versión más jugable de un mapa o como
+  recompensa para afinar el generador. Requiere revisar antes los términos de la API de BeatLeader.
+- **Estructura:** que dos estribillos iguales den patrones parecidos, y condicionar por estilo
+  usando los tags de BeatSaver (tech, speed, dance…).
+- **Datos:** soportar cambios de BPM e Info v4 (recuperaría el 14 % descartado), una rejilla de
+  1/8 o 1/12 para streams y tresillos, aumentar el dataset con espejo izquierda/derecha y probar
+  embeddings de un modelo de audio preentrenado.
+- **Rejilla:** decidir entre la fase φ y φ + medio beat con los onsets de graves (bombo).
 
-- Generar en un solo paso (canción → zip), con un `--preview` que muestre la curva de intensidad.
-- Si se publica en BeatSaver, marcar los mapas como generados por IA, como exige la plataforma.
+Limitaciones actuales, marcadas con `ponytail:` en el código: BPM constante, sin Info v4, sin
+bombas, muros ni sliders, una nota por mano y paso, y los tresillos se redondean a 1/4 de beat.
 
-## Limitaciones actuales
+## Dónde está todo
 
-Están marcadas con `ponytail:` en el código:
+Todo es privado:
 
-- BPM constante: los mapas con cambios de BPM se descartan.
-- No se lee Info v4.
-- Sin bombas, muros ni sliders.
-- Una sola nota por mano y paso.
-- Los tresillos se redondean a 1/4 de beat (se conserva el 94 % de las notas).
+| Qué | Dónde |
+|---|---|
+| Código | GitHub `PGSCOM/BeatGen` (archivado) |
+| Dataset completo: zips, `meta.jsonl` y `.npz` (6303 mapas, 5408 procesados) | HF [`PGSCOM/beatgen-maps`](https://huggingface.co/datasets/PGSCOM/beatgen-maps) |
+| Índice: solo ids y hashes, para reproducir el dataset | HF [`PGSCOM/beatgen-maps-index`](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index) |
+| Modelo final (`ckpt.pt`) y su log; el pequeño queda en el historial | HF [`PGSCOM/beatgen-ckpt`](https://huggingface.co/PGSCOM/beatgen-ckpt) |
+
+**Por qué el dataset no puede ser público.** Los términos de BeatSaver exigen permiso explícito por
+escrito para republicar el contenido de otros usuarios, incluidas las obras derivadas (los tokens lo
+son). Además, el audio tiene copyright. El índice (`DATASET_PUBLIC.md`) sí se podría publicar: solo
+lleva referencias, y cada uno descarga los mapas de BeatSaver con `download.py --from`. Si algún mapa
+generado se publica en BeatSaver, hay que marcarlo como hecho con IA.
