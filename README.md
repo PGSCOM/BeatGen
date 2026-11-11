@@ -110,7 +110,7 @@ modelo final (d=384, 6 capas, 100k pasos) tardó 75 minutos en GPU. `gpu.sh` lo 
 máquina y la deja limpia después:
 
 ```bash
-bash gpu.sh train --d 384 --layers 6 --steps 100000   # venv + .npz de HF + entrenar + subir ckpt
+bash gpu.sh train --d 384 --layers 6 --steps 100000   # venv + entrenar sobre data/proc + subir ckpt a HF
 CKPT=otro.pt bash gpu.sh train ...                    # con otro nombre, sin pisar ckpt.pt
 bash gpu.sh clean                                     # borra venv, datos, cachés y token de HF
 ```
