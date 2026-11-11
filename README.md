@@ -40,19 +40,27 @@ dificultad + intensidad por paso (secciones o --curve) ────────�
 **Hecho:** fase 1, con 5408 canciones procesadas y subidas a HF, y las constantes recalibradas.
 El pipeline funciona de punta a punta.
 
-**En curso:** fase 2. El primer entrenamiento tenía una fuga: la intensidad se calculaba con una
-ventana deslizante que cambiaba justo donde había notas, y el modelo leía ahí sus posiciones. Ahora
-es constante por bloques de 4 compases. Reentrenado (50k pasos, 15 min en GPU, val ≈ 0.49).
+**Hecho:** fase 2. Modelo d=384, 6 capas, 100k pasos (75 min en GPU), en `PGSCOM/beatgen-ckpt`.
 `eval.py` sobre 60 dificultades de validación (1024 pasos cada una):
 
 | | F1 | F1 ±1 | err. intensidad | paridad corregida |
 |---|---|---|---|---|
-| Modelo | **0.59** | 0.71 | **18 %** | 5 % |
+| Modelo grande (temp 1.0, freno de repetición) | **0.66** | **0.74** | **17 %** | 8 % |
+| Modelo pequeño (d=256, 4 capas, temp 0.9) | 0.59 | 0.71 | 18 % | 5 % |
 | Referencia (picos de flujo, nº de notas del mapa real) | 0.39 | 0.72 | — | — |
 | Mapas reales | — | — | — | 4.7 % |
 
-`fix_parity` tenía un fallo: tras una pausa forzaba forehand y volteaba cadenas enteras (corregía el
-39 % de las notas de mapas reales). Ahora retoma en cualquier sentido.
+Por el camino:
+- **Fuga en la intensidad:** se calculaba con una ventana deslizante que cambiaba justo donde había
+  notas, y el modelo leía ahí sus posiciones (F1 0.99 falso). Ahora es constante por bloques de 4 compases.
+- **`fix_parity`:** tras una pausa forzaba forehand y volteaba cadenas enteras (corregía el 39 % de las
+  notas de mapas reales). Ahora retoma en cualquier sentido.
+- **Bucles a mitad de canción:** cada ventana se condiciona en sus propias notas y, con temperatura 0.9,
+  un motivo repetido se reforzaba (hasta 49 % de 4-gramas repetidos hacia el minuto 2:30, frente a ~12 %
+  en mapas reales). Con temperatura 1.0 y un freno suave a repetir motivos recientes (`--rep 0.3`) queda en 3–6 %.
+
+**En curso:** fase 3. Primera prueba en el juego ("For Real", Pharrell Williams): la densidad está bien,
+pero aparecen patrones imposibles y había repetición a mitad de canción (ya corregida).
 
 ## Plan
 
