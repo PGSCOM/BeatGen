@@ -89,6 +89,7 @@ previsto, por lo explicado arriba.
   ```bash
   git clone https://github.com/PGSCOM/BeatGen && cd BeatGen
   bash gpu.sh train --steps 50000      # venv + .npz de HF + train.py + sube ckpt.pt a PGSCOM/beatgen-ckpt
+  CKPT=ckpt_big.pt bash gpu.sh train --d 384 --layers 6 --steps 100000   # otro nombre, no pisa ckpt.pt
   bash gpu.sh clean && cd .. && rm -rf BeatGen
   ```
   Después, en local: `hf download PGSCOM/beatgen-ckpt ckpt.pt --local-dir .`

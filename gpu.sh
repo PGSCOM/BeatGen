@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Entrena en otra máquina con GPU sin dejar rastro.
 #   bash gpu.sh train  [args de train.py]   # venv + datos + entrenamiento + sube ckpt.pt a HF
+#   CKPT=ckpt_big.pt bash gpu.sh train ...  # otro nombre: no pisa el checkpoint anterior
 #   bash gpu.sh clean                       # borra venv, datos, cachés y el token de HF
 # Requisitos: uv y una GPU NVIDIA con driver. Ejecutar desde la carpeta del repo.
 set -euo pipefail
 cd "$(dirname "$0")"
 CKPT_REPO=PGSCOM/beatgen-ckpt
+CKPT=${CKPT:-ckpt.pt}
+LOG=${CKPT%.pt}.log
 
 case "${1:-}" in
 train)
@@ -16,15 +19,15 @@ train)
   python -c "import torch; assert torch.cuda.is_available(), 'torch no ve la GPU'; print(torch.cuda.get_device_name())"
   hf auth whoami >/dev/null 2>&1 || hf auth login
   hf download PGSCOM/beatgen-maps --type dataset --include "proc/*" --local-dir data   # solo los .npz (~2 GB)
-  python train.py "$@" 2>&1 | tee train.log
+  python train.py --out "$CKPT" "$@" 2>&1 | tee "$LOG"
   hf repos create "$CKPT_REPO" --private --exist-ok
-  hf upload "$CKPT_REPO" ckpt.pt && hf upload "$CKPT_REPO" train.log
+  hf upload "$CKPT_REPO" "$CKPT" && hf upload "$CKPT_REPO" "$LOG"
   ;;
 clean)
   hf auth logout 2>/dev/null || true
-  rm -rf .venv data ckpt.pt train.log __pycache__ ~/.cache/huggingface
+  rm -rf .venv data *.pt *.log __pycache__ ~/.cache/huggingface
   uv cache clean
   echo "Limpio. Borra la carpeta del repo con: rm -rf $(pwd)"
   ;;
-*) sed -n 2,5p "$0" ;;
+*) sed -n 2,6p "$0" ;;
 esac
