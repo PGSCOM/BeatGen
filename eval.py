@@ -5,12 +5,13 @@ Intensidad pedida = la del mapa real (density_levels), así timing y control se 
   F1 timing : pasos con nota generados vs reales; exacto y con tolerancia ±1 paso (±1/4 de beat)
   error NPB : |notas/beat generadas - reales| / reales, en ventanas de 4 compases
   paridad   : % de notas que fix_parity cambia o quita
+  cruces    : % de notas en pares simultáneos con brazos cruzados (antes de fix_parity, que los descruza)
 Referencia: tantas notas como el mapa real por ventana, en los pasos con más flujo espectral, manos y direcciones alternas.
 """
 import argparse, glob, random
 import numpy as np
 import torch
-from beatmap import DIFFS, DENS_BLOCK, density_levels, tokens_to_notes, fix_parity, note_token
+from beatmap import DIFFS, DENS_BLOCK, density_levels, tokens_to_notes, fix_parity, note_token, crossed
 from model import BeatGen
 from generate import sample
 
@@ -51,6 +52,11 @@ def baseline(feats, real):
     return tok
 
 
+def cross_rate(tok):
+    notes = tokens_to_notes(tok)
+    return 2 * len(crossed(notes)) / max(1, len(notes))
+
+
 def parity_fix_rate(tok):
     notes = tokens_to_notes(tok)
     if not notes:
@@ -86,15 +92,15 @@ def main():
         tok = sample(model, feats, DIFFS.index(k), density_levels(real), ck["cfg"]["max_len"], a.temp, a.rep)
         base = baseline(feats, (real > 0).any(1))
         ra, ga, ba = (real > 0).any(1), (tok > 0).any(1), (base > 0).any(1)
-        rows[k].append((f1(ga, ra, 0), f1(ga, ra), f1(ba, ra, 0), f1(ba, ra), npb_err((tok > 0).sum(1), (real > 0).sum(1)), parity_fix_rate(tok)))
+        rows[k].append((f1(ga, ra, 0), f1(ga, ra), f1(ba, ra, 0), f1(ba, ra), npb_err((tok > 0).sum(1), (real > 0).sum(1)), parity_fix_rate(tok), cross_rate(tok), cross_rate(real)))
         print(f"{f.split('/')[-1]} {k}: F1 {rows[k][-1][0]:.2f} (ref {rows[k][-1][2]:.2f})", flush=True)
 
-    print(f"\n{'dificultad':<11} {'n':>3} {'F1':>6} {'F1±1':>6} {'ref':>6} {'ref±1':>6} {'err NPB':>8} {'paridad':>8}")
+    print(f"\n{'dificultad':<11} {'n':>3} {'F1':>6} {'F1±1':>6} {'ref':>6} {'ref±1':>6} {'err NPB':>8} {'paridad':>8} {'cruces':>7} {'reales':>7}")
     allr = [r for v in rows.values() for r in v]
     for k, v in list(rows.items()) + [("TOTAL", allr)]:
         if v:
             m = np.mean(v, 0)
-            print(f"{k:<11} {len(v):>3} {m[0]:>6.2f} {m[1]:>6.2f} {m[2]:>6.2f} {m[3]:>6.2f} {m[4]:>8.0%} {m[5]:>8.0%}")
+            print(f"{k:<11} {len(v):>3} {m[0]:>6.2f} {m[1]:>6.2f} {m[2]:>6.2f} {m[3]:>6.2f} {m[4]:>8.0%} {m[5]:>8.0%} {m[6]:>7.1%} {m[7]:>7.1%}")
 
 
 if __name__ == "__main__":

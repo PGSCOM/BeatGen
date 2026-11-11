@@ -155,10 +155,26 @@ def swing(d, hand):
     return int(d == (2 if hand == 1 else 3))  # corte horizontal hacia dentro = forehand
 
 
+def crossed(notes):
+    """Beats con notas simultáneas de ambas manos y la izquierda a la derecha de la derecha (brazos cruzados)."""
+    at = {}
+    for b, x, y, h, d in notes:
+        at.setdefault(b, {})[h] = x
+    return [b for b, hx in at.items() if len(hx) == 2 and hx[0] > hx[1]]
+
+
+def uncross(notes):
+    """Intercambia columnas de los pares simultáneos cruzados; ritmo y direcciones no cambian.
+    Los cruces entre notas separadas en el tiempo no se tocan: los mapas reales los usan igual que el modelo."""
+    bad = set(crossed(notes))
+    xs = {(b, h): x for b, x, y, h, d in notes if b in bad}
+    return [(b, xs[b, 1 - h], y, h, d) if b in bad else (b, x, y, h, d) for b, x, y, h, d in notes]
+
+
 def fix_parity(notes, reset_beats=2.0):
-    """Alterna forehand/backhand por mano; quita choques de ambas manos en la misma celda."""
+    """Descruza manos simultáneas, alterna forehand/backhand por mano y quita choques en la misma celda."""
     # ponytail: paridad por dirección, sin tener en cuenta posición/rotación de muñeca. Basta para un baseline jugable
-    notes = sorted(notes)
+    notes = sorted(uncross(notes))
     out, last, taken = [], {0: (None, -1e9), 1: (None, -1e9)}, set()
     for beat, x, y, h, d in notes:
         if (beat, x, y) in taken:
@@ -224,6 +240,9 @@ if __name__ == "__main__":  # autocomprobación
     assert [n[4] for n in fixed if n[3] == 1] == [1, 0]
     assert fix_parity([(0, 1, 0, 0, 1), (0, 1, 0, 1, 1)]) == [(0, 1, 0, 0, 1)]  # choque de celda
     assert [n[4] for n in fix_parity([(0, 1, 0, 0, 0), (0.5, 1, 0, 0, 1), (4, 1, 0, 0, 0)])] == [0, 1, 0]  # empezar en backhand es válido
+    cr = [(0, 3, 0, 0, 1), (0, 0, 0, 1, 1), (1, 3, 0, 0, 0), (1.5, 0, 0, 1, 0)]  # cruce simultáneo en 0; en 1-1.5 no
+    assert crossed(cr) == [0] and crossed(uncross(cr)) == []
+    assert sorted(uncross(cr))[:2] == [(0, 0, 0, 0, 1), (0, 3, 0, 1, 1)] and sorted(uncross(cr))[2:] == sorted(cr)[2:]
     assert density_levels(np.array([[1, 0]] * 64))[16] == N_DENS - 1  # 4 notas/beat -> nivel máximo
     assert density_levels(np.array([[1, 0], [0, 0], [0, 0], [0, 0]] * 16))[16] == DENS_EDGES.index(1) + 1
     rnd = (np.random.default_rng(0).random((128, 2)) < 0.3).astype(int)
