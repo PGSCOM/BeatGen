@@ -65,8 +65,26 @@ Cada fase termina con una condición medible. Mientras no se cumpla, no se pasa 
 - Probar mapas en el juego, en Hard y en Expert, y apuntar qué patrones fallan.
 - Mejorar la paridad: posición de la muñeca, resets, brazos cruzados y notas que tapan la visión.
 - Añadir bombas para los resets y muros básicos.
+- **Crítico entrenado con replays de BeatLeader:** sustituir las reglas escritas a mano por
+  lo que hacen los jugadores de verdad.
+  - Descargar los replays (`.bsor`) de los mapas ranked, limitados a unos 50 por mapa, y
+    revisar antes los términos de uso y los límites de peticiones de la API.
+  - Sacar etiquetas por nota (tasa de fallo, precisión, ángulos de swing) y alinearlas con los tokens.
+  - Entrenar un modelo pequeño que, a partir del contexto de notas anteriores, prediga la
+    probabilidad de fallo y la precisión de la siguiente.
+  - Normalizar por el nivel del jugador (pp) y por la densidad. Lo que hay que aprender son
+    los fallos que sobran respecto a lo esperado, no los fallos sin más: los mapas ranked son
+    difíciles a propósito.
+  - Usarlo, de menos a más trabajo:
+    1. Generar varias versiones de un mapa y quedarse con la más jugable para su dificultad.
+    2. Dar menos peso al entrenar a los tramos que se juegan peor de lo esperado.
+    3. Afinar el generador con el crítico como recompensa (aprendizaje por refuerzo).
+  - Limitación: solo los mapas ranked y populares tienen replays suficientes, así que el
+    crítico solo conocerá ese estilo.
 
-**Listo cuando:** se puedan jugar 10 canciones distintas de principio a fin sin ningún patrón imposible.
+**Listo cuando:** se puedan jugar 10 canciones distintas de principio a fin sin ningún patrón
+imposible, y elegir el mapa con el crítico baje la tasa de fallo en las pruebas de juego
+frente a quedarse con el primero generado.
 
 ### Fase 4: control y estructura
 
