@@ -1,0 +1,5 @@
+.venv/
+data/
+*.pt
+*_beatgen.zip
+__pycache__/
