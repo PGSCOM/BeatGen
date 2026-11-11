@@ -40,10 +40,19 @@ dificultad + intensidad por paso (secciones o --curve) ────────�
 **Hecho:** fase 1, con 5408 canciones procesadas y subidas a HF, y las constantes recalibradas.
 El pipeline funciona de punta a punta.
 
-**En curso:** fase 2. Primer entrenamiento en GPU: 50k pasos en 15 min, val 0.66 → 0.41. No vale:
-la intensidad se calculaba con una ventana deslizante que cambiaba justo donde había notas, y el
-modelo aprendió a leer ahí sus posiciones en vez de escuchar el audio (F1 0.93 en `eval.py`, imposible).
-Ahora es constante por bloques de 4 compases; hay que reentrenar.
+**En curso:** fase 2. El primer entrenamiento tenía una fuga: la intensidad se calculaba con una
+ventana deslizante que cambiaba justo donde había notas, y el modelo leía ahí sus posiciones. Ahora
+es constante por bloques de 4 compases. Reentrenado (50k pasos, 15 min en GPU, val ≈ 0.49).
+`eval.py` sobre 60 dificultades de validación (1024 pasos cada una):
+
+| | F1 | F1 ±1 | err. intensidad | paridad corregida |
+|---|---|---|---|---|
+| Modelo | **0.59** | 0.71 | **18 %** | 5 % |
+| Referencia (picos de flujo, nº de notas del mapa real) | 0.39 | 0.72 | — | — |
+| Mapas reales | — | — | — | 4.7 % |
+
+`fix_parity` tenía un fallo: tras una pausa forzaba forehand y volteaba cadenas enteras (corregía el
+39 % de las notas de mapas reales). Ahora retoma en cualquier sentido.
 
 ## Plan
 
@@ -87,7 +96,8 @@ previsto, por lo explicado arriba.
   - **Timing:** F1 entre las notas generadas y las del mapa real (tolerancia ±1 paso).
   - **Control:** error entre las notas/beat pedidas y las generadas, sección a sección.
   - **Flujo:** cuántas notas tiene que corregir `fix_parity`; cuantas menos, mejor ha aprendido el modelo.
-- Compararlo con una referencia tonta: una nota en cada pico de onset con direcciones alternas.
+- Compararlo con una referencia tonta: tantas notas como el mapa real por bloque, en los picos de
+  flujo espectral, con manos y direcciones alternas.
 
 **Listo cuando:** supere a la referencia en F1 y el error de intensidad sea < 20 %.
 

@@ -159,16 +159,17 @@ def fix_parity(notes, reset_beats=2.0):
     """Alterna forehand/backhand por mano; quita choques de ambas manos en la misma celda."""
     # ponytail: paridad por dirección, sin tener en cuenta posición/rotación de muñeca. Basta para un baseline jugable
     notes = sorted(notes)
-    out, last, taken = [], {0: (1, -1e9), 1: (1, -1e9)}, set()
+    out, last, taken = [], {0: (None, -1e9), 1: (None, -1e9)}, set()
     for beat, x, y, h, d in notes:
         if (beat, x, y) in taken:
             continue
         p, lb = last[h]
-        want = 1 if beat - lb >= reset_beats else 1 - p
+        if beat - lb >= reset_beats:
+            p = None  # tras una pausa se puede retomar en cualquier sentido (forzar forehand voltea cadenas enteras)
         s = swing(d, h)
-        if s is not None and s != want:
-            d = OPP[d]
-        last[h] = (want, beat)
+        if s is not None and s == p:
+            d, s = OPP[d], 1 - p
+        last[h] = (s if s is not None else None if p is None else 1 - p, beat)
         taken.add((beat, x, y))
         out.append((beat, x, y, h, d))
     return out
@@ -222,6 +223,7 @@ if __name__ == "__main__":  # autocomprobación
     assert [n[4] for n in fixed if n[3] == 0] == [1, 0, 8]  # down, (down->up), punto
     assert [n[4] for n in fixed if n[3] == 1] == [1, 0]
     assert fix_parity([(0, 1, 0, 0, 1), (0, 1, 0, 1, 1)]) == [(0, 1, 0, 0, 1)]  # choque de celda
+    assert [n[4] for n in fix_parity([(0, 1, 0, 0, 0), (0.5, 1, 0, 0, 1), (4, 1, 0, 0, 0)])] == [0, 1, 0]  # empezar en backhand es válido
     assert density_levels(np.array([[1, 0]] * 64))[16] == N_DENS - 1  # 4 notas/beat -> nivel máximo
     assert density_levels(np.array([[1, 0], [0, 0], [0, 0], [0, 0]] * 16))[16] == DENS_EDGES.index(1) + 1
     rnd = (np.random.default_rng(0).random((128, 2)) < 0.3).astype(int)
