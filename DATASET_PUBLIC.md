@@ -11,16 +11,18 @@ size_categories: [1K<n<10K]
 
 # BeatGen maps index
 
-The list of Beat Saber maps used to train [BeatGen](https://github.com/PGSCOM/BeatGen). It holds
-references only: no maps and no audio. The maps belong to their mappers and BeatSaver's terms don't
-allow redistributing them, so you download them yourself from [BeatSaver](https://beatsaver.com).
+Index of the Beat Saber maps used to train [BeatGen](https://github.com/PGSCOM/BeatGen). It contains
+references only, without map content or audio: the maps are owned by their authors and BeatSaver's
+terms of service do not permit redistribution, so they must be retrieved directly from
+[BeatSaver](https://beatsaver.com).
 
 6303 maps:
 
-- 2466 ranked maps rated 0.6 or higher.
-- 3837 unranked maps rated 0.85 or higher, with at least 50 votes.
+- 2466 ranked maps with a rating of at least 0.6.
+- 3837 unranked maps with a rating of at least 0.85 and at least 50 votes.
 
-Automapped maps, maps declared as AI-made and maps using Noodle or Mapping Extensions are excluded.
+Automapped levels, levels declared as AI-generated and levels using Noodle or Mapping Extensions
+are excluded.
 
 ## Rebuilding the dataset
 
@@ -33,7 +35,7 @@ python download.py --from meta.jsonl   # data/raw/<id>.zip, the exact version by
 python prepare.py                      # data/proc/<id>.npz (5408 usable maps)
 ```
 
-If a mapper uploads a new version of a map, the old one may no longer be available and that
+If a mapper publishes a new version of a map, the indexed version may become unavailable and that
 download will fail.
 
 ## Fields
@@ -48,4 +50,4 @@ download will fail.
 | `uploaded` | Upload date |
 | `diffs` | Difficulties in the Standard characteristic |
 
-Metadata comes from the public BeatSaver API.
+Metadata was retrieved from the public BeatSaver API.
