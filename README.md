@@ -8,6 +8,8 @@ intensidad distinta en verso y estribillo, y sigue la estructura de la canción.
 uv venv --python 3.12 .venv && uv pip install -r requirements.txt
 python download.py --max 3000          # mapas ranked de BeatSaver → data/raw (~7 MB/mapa)
 python prepare.py                      # → data/proc/*.npz (features por paso + tokens)
+hf upload PGSCOM/beatgen-maps data . --type dataset --private      # copia en HF (privada)
+hf upload PGSCOM/beatgen-maps DATASET.md README.md --type dataset
 python train.py --steps 50000          # → ckpt.pt (usa GPU si hay)
 python generate.py cancion.mp3 --diffs Hard Expert
 python generate.py cancion.mp3 --curve "0:0.5,30:2,75:1"   # intensidad manual (seg:notas/beat)
@@ -43,6 +45,9 @@ Cada fase termina con una condición medible. Mientras no se cumpla, no se pasa 
 ### Fase 1: dataset
 
 - Descargar unos 3000 mapas ranked (~21 GB) y procesarlos con `prepare.py`.
+- Subir `data/` (zips, `meta.jsonl` y `.npz`) al dataset privado
+  [PGSCOM/beatgen-maps](https://huggingface.co/datasets/PGSCOM/beatgen-maps). No puede ser
+  público: ver `DATASET.md`.
 - Recalcular sobre el dataset completo: el `% descartados` (por cambios de BPM o Info v4),
   el `% notas conservadas`, los rangos `NPB` por dificultad y `ONSET_LATENCY`.
 - Evaluar la rejilla con canciones que **no** se hayan usado para calibrar.

@@ -1,4 +1,4 @@
-"""Descarga mapas ranked de BeatSaver a data/raw/<id>.zip.
+"""Descarga mapas ranked de BeatSaver a data/raw/<id>.zip y sus metadatos a data/raw/meta.jsonl.
 
 uso: python download.py --max 3000 --min-rating 0.75
 """
@@ -25,6 +25,7 @@ def main():
     q = urllib.parse.urlencode({"leaderboard": a.leaderboard, "sortOrder": "Rating",
                                 "minRating": a.min_rating, "pageSize": 100})
     n, page = 0, 0
+    meta = open(out / "meta.jsonl", "w")
     while n < a.max:
         docs = json.loads(get(API.format(page=page) + q))["docs"]
         if not docs:
@@ -43,6 +44,15 @@ def main():
                     print("fallo", m["id"], e)
                     continue
                 time.sleep(0.05)
+            meta.write(json.dumps({"id": m["id"], "name": m["name"], "song": m["metadata"].get("songName"),
+                                   "artist": m["metadata"].get("songAuthorName"), "mapper": m["uploader"]["name"],
+                                   "bpm": m["metadata"].get("bpm"), "rating": m["stats"].get("score"),
+                                   "upvotes": m["stats"].get("upvotes"), "tags": m.get("tags", []),
+                                   "ranked": m.get("ranked"), "blRanked": m.get("blRanked"),
+                                   "uploaded": m.get("uploaded"), "hash": v["hash"],
+                                   "diffs": [d["difficulty"] for d in v["diffs"] if d["characteristic"] == "Standard"]},
+                                  ensure_ascii=False) + "\n")
+            meta.flush()
             n += 1
             if n >= a.max:
                 break
