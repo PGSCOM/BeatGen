@@ -9,7 +9,7 @@ tags: [beat-saber, rhythm-game, music, audio]
 # BeatGen maps (privado)
 
 Datos de entrenamiento de [BeatGen](https://github.com/PGSCOM/BeatGen): mapas ranked de BeatSaver
-(rating ≥ 0.75, sin automappers ni mapas declarados como IA).
+(rating ≥ 0.6, sin automappers ni mapas declarados como IA).
 
 | Ruta | Contenido |
 |---|---|

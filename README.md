@@ -6,10 +6,13 @@ intensidad distinta en verso y estribillo, y sigue la estructura de la canción.
 
 ```bash
 uv venv --python 3.12 .venv && uv pip install -r requirements.txt
-python download.py --max 3000          # mapas ranked de BeatSaver → data/raw (~7 MB/mapa)
+python download.py --max 4000 --min-rating 0.6   # mapas ranked de BeatSaver → data/raw (~8 MB/mapa)
+python download.py --from meta.jsonl   # o reproducir el dataset publicado (mismas versiones)
 python prepare.py                      # → data/proc/*.npz (features por paso + tokens)
 hf upload PGSCOM/beatgen-maps data . --type dataset --private      # copia en HF (privada)
 hf upload PGSCOM/beatgen-maps DATASET.md README.md --type dataset
+hf upload PGSCOM/beatgen-maps-index data/raw/meta.jsonl meta.jsonl --type dataset   # índice público
+hf upload PGSCOM/beatgen-maps-index DATASET_PUBLIC.md README.md --type dataset
 python train.py --steps 50000          # → ckpt.pt (usa GPU si hay)
 python generate.py cancion.mp3 --diffs Hard Expert
 python generate.py cancion.mp3 --curve "0:0.5,30:2,75:1"   # intensidad manual (seg:notas/beat)
@@ -47,7 +50,11 @@ Cada fase termina con una condición medible. Mientras no se cumpla, no se pasa 
 - Descargar unos 3000 mapas ranked (~21 GB) y procesarlos con `prepare.py`.
 - Subir `data/` (zips, `meta.jsonl` y `.npz`) al dataset privado
   [PGSCOM/beatgen-maps](https://huggingface.co/datasets/PGSCOM/beatgen-maps). No puede ser
-  público: ver `DATASET.md`.
+  público (ver `DATASET.md`). La versión pública,
+  [PGSCOM/beatgen-maps-index](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index), solo
+  lleva `meta.jsonl` con ids y hashes; los mapas se descargan con `download.py --from`.
+- Con rating ≥ 0.75 solo hay 2113 mapas ranked (1753 útiles). Con ≥ 0.6 hay 2466, casi todo el
+  catálogo ranked, y salen **2006** útiles. El 19 % se descarta, sobre todo por cambios de BPM.
 - Recalcular sobre el dataset completo: el `% descartados` (por cambios de BPM o Info v4),
   el `% notas conservadas`, los rangos `NPB` por dificultad y `ONSET_LATENCY`.
 - Evaluar la rejilla con canciones que **no** se hayan usado para calibrar.

@@ -1,10 +1,12 @@
 """Descarga mapas ranked de BeatSaver a data/raw/<id>.zip y sus metadatos a data/raw/meta.jsonl.
 
-uso: python download.py --max 3000 --min-rating 0.75
+uso: python download.py --max 3000 --min-rating 0.6
+     python download.py --from meta.jsonl      # reproduce un dataset exacto (mismos ids y versiones)
 """
 import argparse, json, pathlib, time, urllib.parse, urllib.request
 
 API = "https://api.beatsaver.com/search/text/{page}?"
+CDN = "https://r2cdn.beatsaver.com/{hash}.zip"
 UA = {"User-Agent": "BeatGen-dataset/0.1"}
 
 
@@ -19,9 +21,20 @@ def main():
     ap.add_argument("--max", type=int, default=3000)
     ap.add_argument("--min-rating", type=float, default=0.75)
     ap.add_argument("--leaderboard", default="Ranked", help="Ranked | All | ScoreSaber | BeatLeader")
+    ap.add_argument("--from", dest="src", help="meta.jsonl de un dataset publicado: descarga esas versiones")
     a = ap.parse_args()
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    if a.src:
+        for m in map(json.loads, open(a.src)):
+            f = out / f"{m['id']}.zip"
+            if not f.exists():
+                try:
+                    f.write_bytes(get(CDN.format(hash=m["hash"])))
+                except OSError as e:
+                    print("fallo", m["id"], e)  # p.ej. el mapper subió una versión nueva
+                time.sleep(0.05)
+        return
     q = urllib.parse.urlencode({"leaderboard": a.leaderboard, "sortOrder": "Rating",
                                 "minRating": a.min_rating, "pageSize": 100})
     n, page = 0, 0
