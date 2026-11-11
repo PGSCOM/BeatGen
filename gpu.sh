@@ -18,7 +18,8 @@ train)
   uv pip install -q -r requirements.txt huggingface_hub
   python -c "import torch; assert torch.cuda.is_available(), 'torch no ve la GPU'; print(torch.cuda.get_device_name())"
   hf auth whoami >/dev/null 2>&1 || hf auth login
-  hf download PGSCOM/beatgen-maps --type dataset --include "proc/*" --local-dir data   # solo los .npz (~2 GB)
+  # .npz locales (download.py --from + prepare.py) o, si no hay, los del dataset privado (solo el autor)
+  [ -d data/proc ] || hf download PGSCOM/beatgen-maps --type dataset --include "proc/*" --local-dir data
   python train.py --out "$CKPT" "$@" 2>&1 | tee "$LOG"
   hf repos create "$CKPT_REPO" --private --exist-ok
   hf upload "$CKPT_REPO" "$CKPT" && hf upload "$CKPT_REPO" "$LOG"

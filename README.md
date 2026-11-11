@@ -1,6 +1,6 @@
 # BeatGen
 
-> **Proyecto archivado (noviembre de 2026).** Funciona de punta a punta y genera mapas que se pueden
+> **Proyecto terminado (noviembre de 2026).** Funciona de punta a punta y genera mapas que se pueden
 > jugar, pero no llega a la calidad de un mapa hecho a mano. Este README resume cómo está montado,
 > qué se consiguió y qué quedó pendiente.
 
@@ -31,9 +31,21 @@ número de notas que el mapa real.
 
 ## Uso
 
+El modelo entrenado no se publica (ver [Datos y licencias](#datos-y-licencias)), así que hay que
+reproducir el dataset y entrenarlo:
+
 ```bash
+git clone https://github.com/PGSCOM/BeatGen && cd BeatGen
 uv venv --python 3.12 .venv && uv pip install -r requirements.txt
-hf download PGSCOM/beatgen-ckpt ckpt.pt --local-dir .          # modelo entrenado (repo privado)
+hf download PGSCOM/beatgen-maps-index meta.jsonl --type dataset --local-dir .
+python download.py --from meta.jsonl    # 6303 mapas de BeatSaver, las mismas versiones (~45 GB)
+python prepare.py                       # → data/proc/*.npz (5408 canciones, ~2 GB)
+bash gpu.sh train --d 384 --layers 6 --steps 100000   # en una máquina con GPU NVIDIA (~75 min)
+```
+
+Para generar un mapa:
+
+```bash
 python generate.py cancion.mp3 --diffs Hard Expert              # → cancion_beatgen.zip
 python generate.py cancion.mp3 --curve "0:0.5,30:2,75:1"         # intensidad a mano (segundo:notas/beat)
 python generate.py cancion.mp3 --bpm 128                         # si la detección del BPM falla
@@ -173,19 +185,20 @@ Por si se retoma, estos son los errores que más costó ver:
 Limitaciones actuales, marcadas con `ponytail:` en el código: BPM constante, sin Info v4, sin
 bombas, muros ni sliders, una nota por mano y paso, y los tresillos se redondean a 1/4 de beat.
 
-## Dónde está todo
+## Datos y licencias
 
-Todo es privado:
+| Qué | Dónde | Acceso |
+|---|---|---|
+| Código | GitHub [`PGSCOM/BeatGen`](https://github.com/PGSCOM/BeatGen) | Público, licencia MIT |
+| Índice: ids, hashes y metadatos de los 6303 mapas | HF [`PGSCOM/beatgen-maps-index`](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index) | Público |
+| Dataset completo: zips y `.npz` | HF `PGSCOM/beatgen-maps` | Privado |
+| Modelo entrenado | HF `PGSCOM/beatgen-ckpt` | Privado |
 
-| Qué | Dónde |
-|---|---|
-| Código | GitHub `PGSCOM/BeatGen` (archivado) |
-| Dataset completo: zips, `meta.jsonl` y `.npz` (6303 mapas, 5408 procesados) | HF [`PGSCOM/beatgen-maps`](https://huggingface.co/datasets/PGSCOM/beatgen-maps) |
-| Índice: solo ids y hashes, para reproducir el dataset | HF [`PGSCOM/beatgen-maps-index`](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index) |
-| Modelo final (`ckpt.pt`) y su log; el pequeño queda en el historial | HF [`PGSCOM/beatgen-ckpt`](https://huggingface.co/PGSCOM/beatgen-ckpt) |
-
-**Por qué el dataset no puede ser público.** Los términos de BeatSaver exigen permiso explícito por
-escrito para republicar el contenido de otros usuarios, incluidas las obras derivadas (los tokens lo
-son). Además, el audio tiene copyright. El índice (`DATASET_PUBLIC.md`) sí se podría publicar: solo
-lleva referencias, y cada uno descarga los mapas de BeatSaver con `download.py --from`. Si algún mapa
-generado se publica en BeatSaver, hay que marcarlo como hecho con IA.
+- **Los mapas y el audio no se redistribuyen.** Los términos de BeatSaver exigen permiso
+  explícito por escrito para republicar o usar el contenido de otros usuarios, incluidas las obras
+  derivadas, y el audio tiene copyright. Por eso el dataset público solo lleva referencias: cada uno
+  descarga los mapas de BeatSaver con `download.py --from`.
+- **Los `.npz` tampoco:** los tokens son una transcripción directa de los mapas.
+- **El modelo entrenado tampoco.** Si cuenta como obra derivada de los mapas es una zona gris, y los
+  términos no hablan de entrenar modelos. Para publicarlo habría que pedir permiso a BeatSaver.
+- Si algún mapa generado se publica en BeatSaver, hay que marcarlo como hecho con IA.
