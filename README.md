@@ -29,7 +29,7 @@ dificultad + intensidad por paso (secciones o --curve) ────────�
 | Pieza | Archivo | Detalle |
 |---|---|---|
 | Descarga | `download.py` | Mapas ranked de BeatSaver ordenados por rating; excluye automappers y los declarados como IA. |
-| Rejilla | `beatmap.estimate_grid` | Peine armónico sobre los onsets. En 36 mapas ranked, el BPM acierta siempre (salvo octava) y la fase queda a menos de 15 ms en el 83 % de los casos. |
+| Rejilla | `beatmap.estimate_grid` | Peine armónico sobre los onsets. En 5408 mapas, el BPM acierta en el 97 % (salvo octava) y la fase queda a menos de 15 ms en el 63 % (error mediano de 8 ms). |
 | Tokens | `beatmap.py` | Por paso y mano: 0 = nada, o una de 108 notas (columna × fila × dirección). |
 | Modelo | `model.py` | Encoder: audio + dificultad + intensidad. Decoder causal: notas de las dos manos. |
 | Control | `generate.py` | La intensidad (notas/beat, 8 niveles) sale de los propios mapas al entrenar. Al generar, se calcula a partir de las secciones de la canción (clustering + energía) o de `--curve`. |
@@ -37,29 +37,39 @@ dificultad + intensidad por paso (secciones o --curve) ────────�
 
 ## Estado
 
-**Hecho:** pipeline completo, desde la descarga hasta el zip, probado de punta a punta con 40
-mapas. El modelo solo se ha entrenado para comprobar que aprende (300 pasos, 36 canciones, CPU):
-la loss baja, pero todavía no respeta la intensidad pedida.
+**Hecho:** fase 1, con 5408 canciones procesadas y subidas a HF, y las constantes recalibradas.
+El pipeline funciona de punta a punta.
+
+**En curso:** fase 2, entrenando en GPU con `gpu.sh`.
 
 ## Plan
 
 Cada fase termina con una condición medible. Mientras no se cumpla, no se pasa a la siguiente.
 
-### Fase 1: dataset
+### Fase 1: dataset ✅
 
-- Descargar unos 3000 mapas ranked (~21 GB) y procesarlos con `prepare.py`.
-- Subir `data/` (zips, `meta.jsonl` y `.npz`) al dataset privado
-  [PGSCOM/beatgen-maps](https://huggingface.co/datasets/PGSCOM/beatgen-maps). No puede ser
-  público (ver `DATASET.md`). La versión pública,
-  [PGSCOM/beatgen-maps-index](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index), solo
-  lleva `meta.jsonl` con ids y hashes; los mapas se descargan con `download.py --from`.
-- Con rating ≥ 0.75 solo hay 2113 mapas ranked (1753 útiles). Con ≥ 0.6 hay 2466, casi todo el
-  catálogo ranked, y salen **2006** útiles. El 19 % se descarta, sobre todo por cambios de BPM.
-- Recalcular sobre el dataset completo: el `% descartados` (por cambios de BPM o Info v4),
-  el `% notas conservadas`, los rangos `NPB` por dificultad y `ONSET_LATENCY`.
-- Evaluar la rejilla con canciones que **no** se hayan usado para calibrar.
+- **6303 mapas** descargados (45 GB): 2466 ranked con rating ≥ 0.6, que son casi todo el catálogo
+  ranked, más 3837 no ranked con rating ≥ 0.85 y ≥ 50 votos, sin Noodle ni Mapping Extensions.
+  De ellos, **5408 son útiles**; el 14 % se descarta, sobre todo por cambios de BPM.
+- Están en el dataset privado [PGSCOM/beatgen-maps](https://huggingface.co/datasets/PGSCOM/beatgen-maps)
+  (zips, `meta.jsonl` y `.npz`). No puede ser público (ver `DATASET.md`). El índice
+  [PGSCOM/beatgen-maps-index](https://huggingface.co/datasets/PGSCOM/beatgen-maps-index), también
+  privado de momento, solo lleva ids y hashes; con él, `download.py --from` reproduce el dataset.
+- `calib.py` sobre el dataset completo: se conserva el 94.3 % de las notas, nuevos rangos `NPB` y
+  `ONSET_LATENCY` = 36 ms (calibrada con una mitad de las canciones y evaluada con la otra).
+- Rejilla en validación: BPM correcto en el 97.3 % (salvo octava), fase < 15 ms en el 62.9 %
+  y error mediano de 8 ms. De los fallos, un 13 % cae a medio beat (se engancha al contratiempo)
+  y el resto está repartido.
+  - beat_this (CPJKU), un tracker neuronal reciente, no mejora: con su fase y el BPM del peine
+    queda en el 56.5 % sobre 138 canciones, frente al 58.7 % del peine. Si dos métodos
+    independientes se quedan en el mismo techo, el límite probablemente está en la propia
+    referencia: no todos los mapas tienen la rejilla alineada con el beat del audio.
+  - Por eso se baja el objetivo del 80 % (medido en 36 mapas) a lo que hay. Ya existe `--bpm` para
+    corregir a mano; la fase a medio beat se puede atacar más adelante, por ejemplo eligiendo entre
+    φ y φ + p/2 con los onsets de graves (bombo).
 
-**Listo cuando:** haya ≥ 2500 canciones procesadas y la fase quede a < 15 ms en ≥ 80 % del conjunto de validación.
+**Listo:** 5408 canciones (≥ 2500). La fase se queda en el 63 % < 15 ms, por debajo del 80 %
+previsto, por lo explicado arriba.
 
 ### Fase 2: modelo base
 
@@ -137,4 +147,4 @@ Están marcadas con `ponytail:` en el código:
 - No se lee Info v4.
 - Sin bombas, muros ni sliders.
 - Una sola nota por mano y paso.
-- Los tresillos se redondean a 1/4 de beat (se conserva el 96 % de las notas).
+- Los tresillos se redondean a 1/4 de beat (se conserva el 94 % de las notas).

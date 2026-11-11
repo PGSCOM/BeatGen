@@ -11,8 +11,8 @@ from beatmap import (DIFFS, DENS_EDGES, SPB, load_audio, estimate_grid, step_fea
                      tokens_to_notes, fix_parity, export_zip)
 from model import BeatGen, BOS
 
-# notas/beat (percentiles 15 y 85 de 36 mapas ranked); recalcular con el dataset completo
-NPB = {"Easy": (0.25, 1), "Normal": (0.5, 1.25), "Hard": (0.75, 1.75), "Expert": (1, 2.25), "ExpertPlus": (1, 3)}
+# notas/beat por ventana de 4 beats (percentiles 15 y 85, calib.py sobre 5408 mapas)
+NPB = {"Easy": (0.5, 1), "Normal": (0.5, 1.5), "Hard": (0.75, 2), "Expert": (1, 2.5), "ExpertPlus": (1.25, 3)}
 
 
 def sections(feats, n):

@@ -9,7 +9,7 @@ import soundfile as sf
 
 SPB = 4  # pasos por beat  # ponytail: 1/4 de beat; tresillos y streams 1/8 se redondean. Subir a 8 o 12 si el modelo base lo pide
 SR, HOP, N_MELS = 22050, 512, 80
-ONSET_LATENCY = 0.035  # s; retraso medido de la envolvente de onsets frente al grid de mapas ranked
+ONSET_LATENCY = 0.036  # s; retraso de la envolvente de onsets frente a la rejilla de los mapas (calib.py, 5408 mapas)
 DIFFS = ["Easy", "Normal", "Hard", "Expert", "ExpertPlus"]
 N_TOK = 1 + 4 * 3 * 9
 DENS_EDGES = [0.1, 0.5, 1, 1.5, 2, 3, 4]  # notas por beat -> 8 niveles de intensidad
