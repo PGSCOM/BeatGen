@@ -63,7 +63,13 @@ Cada fase termina con una condición medible. Mientras no se cumpla, no se pasa 
 
 ### Fase 2: modelo base
 
-- Entrenar en GPU, en Colab o en una GPU alquilada; en CPU no es viable.
+- Entrenar en GPU; en CPU no es viable. En otra máquina Ubuntu con GPU:
+  ```bash
+  git clone https://github.com/PGSCOM/BeatGen && cd BeatGen
+  bash gpu.sh train --steps 50000      # venv + .npz de HF + train.py + sube ckpt.pt a PGSCOM/beatgen-ckpt
+  bash gpu.sh clean && cd .. && rm -rf BeatGen
+  ```
+  Después, en local: `hf download PGSCOM/beatgen-ckpt ckpt.pt --local-dir .`
 - Crear `eval.py`, que mida sobre las canciones de validación:
   - **Timing:** F1 entre las notas generadas y las del mapa real (tolerancia ±1 paso).
   - **Control:** error entre las notas/beat pedidas y las generadas, sección a sección.

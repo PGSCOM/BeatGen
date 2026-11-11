@@ -1,6 +1,7 @@
 """Descarga mapas ranked de BeatSaver a data/raw/<id>.zip y sus metadatos a data/raw/meta.jsonl.
 
-uso: python download.py --max 3000 --min-rating 0.6
+uso: python download.py --max 3000 --min-rating 0.6                          # ranked
+     python download.py --leaderboard All --min-rating 0.85 --min-votes 50   # no ranked, bien valorados
      python download.py --from meta.jsonl      # reproduce un dataset exacto (mismos ids y versiones)
 """
 import argparse, json, pathlib, time, urllib.parse, urllib.request
@@ -21,6 +22,7 @@ def main():
     ap.add_argument("--max", type=int, default=3000)
     ap.add_argument("--min-rating", type=float, default=0.75)
     ap.add_argument("--leaderboard", default="Ranked", help="Ranked | All | ScoreSaber | BeatLeader")
+    ap.add_argument("--min-votes", type=int, default=0, help="mínimo de votos (positivos + negativos)")
     ap.add_argument("--from", dest="src", help="meta.jsonl de un dataset publicado: descarga esas versiones")
     a = ap.parse_args()
     out = pathlib.Path(a.out)
@@ -38,7 +40,9 @@ def main():
     q = urllib.parse.urlencode({"leaderboard": a.leaderboard, "sortOrder": "Rating",
                                 "minRating": a.min_rating, "pageSize": 100})
     n, page = 0, 0
-    meta = open(out / "meta.jsonl", "w")
+    mp = out / "meta.jsonl"
+    seen = {json.loads(l)["id"] for l in open(mp)} if mp.exists() else set()
+    meta = open(mp, "a")
     while n < a.max:
         docs = json.loads(get(API.format(page=page) + q))["docs"]
         if not docs:
@@ -46,8 +50,12 @@ def main():
         for m in docs:
             if m.get("automapper") or m.get("declaredAi", "None") != "None":
                 continue
+            if m["stats"]["upvotes"] + m["stats"]["downvotes"] < a.min_votes:
+                continue
             v = m["versions"][0]
             if not any(d["characteristic"] == "Standard" for d in v["diffs"]):
+                continue
+            if any(d.get("ne") or d.get("me") for d in v["diffs"]):  # mods que sacan notas de la rejilla
                 continue
             f = out / f"{m['id']}.zip"
             if not f.exists():
@@ -57,7 +65,9 @@ def main():
                     print("fallo", m["id"], e)
                     continue
                 time.sleep(0.05)
-            meta.write(json.dumps({"id": m["id"], "name": m["name"], "song": m["metadata"].get("songName"),
+            if m["id"] not in seen:
+                seen.add(m["id"])
+                meta.write(json.dumps({"id": m["id"], "name": m["name"], "song": m["metadata"].get("songName"),
                                    "artist": m["metadata"].get("songAuthorName"), "mapper": m["uploader"]["name"],
                                    "bpm": m["metadata"].get("bpm"), "rating": m["stats"].get("score"),
                                    "upvotes": m["stats"].get("upvotes"), "tags": m.get("tags", []),
@@ -65,7 +75,7 @@ def main():
                                    "uploaded": m.get("uploaded"), "hash": v["hash"],
                                    "diffs": [d["difficulty"] for d in v["diffs"] if d["characteristic"] == "Standard"]},
                                   ensure_ascii=False) + "\n")
-            meta.flush()
+                meta.flush()
             n += 1
             if n >= a.max:
                 break
