@@ -3,3 +3,6 @@ data/
 *.pt
 *_beatgen.zip
 __pycache__/
+*.mp3
+*.ogg
+*.egg
